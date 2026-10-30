@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+*.tgz
+
+# State written by stepan when run from sources (docs/development.md)
+.dev-data/
+
+# Tests
+coverage/
+
+# Logs
+logs/
+*.log
+
+# Environment
+.env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Maintainer's local task board
+.boardown/
+
+# AI assistants: agents, commands and skills are committed; local state is not.
+.claude/settings.local.json
+CLAUDE.local.md
+.opencode/
