@@ -29,4 +29,25 @@ describe('run', () => {
     expect(result.code).toBe(2);
     expect(result.stderr).toContain("unknown command 'frobnicate'");
   });
+
+  it('prints start help without reading a flow or writing state', () => {
+    expect(capture(['start', '--help'])).toEqual({
+      code: 0,
+      stdout: 'Usage: stepan start <flow> <task>\n',
+      stderr: '',
+    });
+  });
+
+  it.each([
+    { args: ['start'] },
+    { args: ['start', 'feature', ''] },
+    { args: ['start', 'feature', 'task', 'extra'] },
+    { args: ['start', '--help', '-h'] },
+    { args: ['start', '--unknown'] },
+  ])('rejects malformed start arguments (%#)', ({ args }) => {
+    const result = capture(args);
+    expect(result.code).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('Usage: stepan start');
+  });
 });

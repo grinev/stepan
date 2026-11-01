@@ -3,7 +3,8 @@
 What Stepan is and how it behaves. This file describes the current intent; it is not a gate. A
 change that goes beyond it updates it in the same change.
 
-**State:** 0.1 is specified below; nothing is implemented yet.
+**State:** 0.1 is specified below; `start` is implemented. `current`, `next`, `abort` and
+placeholder substitution are not implemented yet.
 
 ## Problem
 
