@@ -37,4 +37,5 @@ desktop.ini
 # AI assistants: agents, commands and skills are committed; local state is not.
 .claude/settings.local.json
 CLAUDE.local.md
-.opencode/
+.opencode/*
+!.opencode/agents/
