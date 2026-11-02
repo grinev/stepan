@@ -26,10 +26,10 @@ with any tracker and any harness that has a shell.
 
 ## Always
 
-- Before review and before a commit — `npm run check`. Write the output of every run whole to a
-  file in the session scratchpad (`npm run check > <file> 2>&1`), no `tail`/`grep` in the same
-  command; investigate from that file instead of re-running. A test that failed and passed on
-  retry is flaky — find and fix it.
+- Before code review and before a commit — `npm run check`; not before plan review. Write the
+  output of every run whole to a file in the session scratchpad (`npm run check > <file> 2>&1`),
+  no `tail`/`grep` in the same command; investigate from that file instead of re-running. A test
+  that failed and passed on retry is flaky — find and fix it.
 - User-visible behaviour gets an e2e test through `runCli`; logic with a real branch gets a unit
   test next to it — `docs/development.md`, "Tests".
 - Anything Stepan writes — run state, config, hooks in Claude Code or OpenCode — follows the table
@@ -49,8 +49,16 @@ Read what applies **before** the work it concerns.
 ## How we work
 
 - **Work starts with a plan in a file**, not plan mode: write it, run `plan-reviewer`, show it to
-  the user and wait for agreement; later edits go into the same file. Without a plan — only a
-  quick fix the user explicitly asks for.
+  the user and wait for agreement. Without a plan — only a quick fix the user explicitly asks for.
+- **Plan structure.** Every plan consists of exactly four top-level sections: goal and scope,
+  decisions, implementation, and verification. Goal and scope define the result and boundaries;
+  decisions explain the chosen approach; implementation describes code and documentation changes;
+  verification describes tests and acceptance checks. Keep all plan content within these sections.
+- **Plan updates.** Update the relevant sections in the same file when accepted review feedback,
+  implementation discoveries or user decisions change the scope, behaviour, approach or
+  verification. Make the update when the decision is adopted, so the plan describes the current
+  agreed solution and how to verify it. After code review, update the plan when addressing findings
+  changes that solution or its verification.
 - **Subagents are regular steps of the loop; call them yourself, without asking.** The permission
   is given here and always holds:
   - `plan-reviewer` — after the plan is written, before code. No code until the plan review has
