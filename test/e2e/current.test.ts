@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { RunState } from '../../src/run-store.js';
+import type { RunState } from '../../src/run.js';
 import { createCli, runCli, type CliSandbox } from './run-cli.js';
 
 const FLOW = `start: plan

@@ -58,13 +58,19 @@ is always the checkout's `.dev-data/`, even when the command's working directory
 installed packages use the working directory. Flow input is always read from the working
 directory. Every later write location must use this same resolver.
 
-`start` saves `<write root>/.stepan/run.json`. After validating the entire flow, it takes an
-exclusive `<write root>/.stepan/start.lock` while reading the old state and saving the new run.
-Locking the read as well as the write prevents two starts from both replacing the same finished
-run and overwriting the first new live run. The lock is released on ordinary success or failure.
-If a process crashes and leaves the lock behind, confirm no `start` is running before manually
-removing that lock; Stepan does not guess whether it is stale. This is not crash recovery for an
-interrupted state-file write. Harness configuration and hooks are not implemented yet.
+`start` and `next` save `<write root>/.stepan/run.json`. Both take an exclusive
+`<write root>/.stepan/start.lock` across reading the current state, deciding and writing. The name
+is historical: keeping it avoids ignoring a lock left by an earlier version. This prevents two
+starts from replacing the same finished run and prevents competing transitions from overwriting
+one another. `next` first reads the snapshot for its dynamic CLI flags, but rereads and validates
+the actual state under the lock before applying the outcome; it never saves that preliminary read.
+`current` only reads and does not acquire a lock.
+
+The lock is released on ordinary success or failure. If a process crashes and leaves it behind,
+confirm no `start` or `next` is running before manually removing it; Stepan does not guess whether
+it is stale. Writes are synchronous JSON writes, not atomic replacements: this is not crash
+recovery for an interrupted state-file write, and a failure during the write can leave unreadable
+state. Harness configuration and hooks are not implemented yet.
 
 ## Platforms
 

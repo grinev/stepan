@@ -264,7 +264,7 @@ describe('stepan start', () => {
       writeFileSync(lock, 'busy');
       const result = runCli(['start', 'feature', 'TASK-2'], cli);
       expect(result.code).toBe(1);
-      expect(result.stderr).toContain('Another start');
+      expect(result.stderr).toContain('Another command');
       expect(result.stderr).toContain(lock);
       expect(readFileSync(lock, 'utf8')).toBe('busy');
       if (before === undefined) expect(existsSync(cli.runPath)).toBe(false);

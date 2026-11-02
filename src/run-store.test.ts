@@ -9,9 +9,16 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import * as fs from 'node:fs';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { validateFlow, type Flow } from './flow.js';
-import { loadRun, saveStart, validateRun, type RunState } from './run-store.js';
+import { loadRun, saveNext, saveStart, validateRun } from './run-store.js';
+import type { RunState } from './run.js';
+
+// Native ESM exports cannot be spied on directly; keep real I/O behind a configurable facade.
+vi.mock('node:fs', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:fs')>()),
+}));
 
 const flow = validateFlow({ start: 'first', steps: { first: { instruction: 'Instruction.' } } });
 function run(): RunState {
@@ -20,6 +27,7 @@ function run(): RunState {
 
 const directories: string[] = [];
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const directory of directories.splice(0))
     rmSync(directory, { recursive: true, force: true });
 });
@@ -209,7 +217,8 @@ describe('saveStart', () => {
           first: {
             get instruction() {
               called = true;
-              expect(() => saveStart(directory, flow, 'racing start')).toThrow('Another start');
+              expect(() => saveStart(directory, flow, 'racing start')).toThrow('Another command');
+              expect(() => saveNext(directory, 'first', {})).toThrow('Another command');
               return 'Instruction.';
             },
             outcome: {},
@@ -230,7 +239,152 @@ describe('saveStart', () => {
     mkdirSync(join(directory, '.stepan'));
     const lock = join(directory, '.stepan/start.lock');
     writeFileSync(lock, 'busy');
-    expect(() => saveStart(directory, flow, 'TASK-1')).toThrow('Another start');
+    expect(() => saveStart(directory, flow, 'TASK-1')).toThrow('Another command');
     expect(readFileSync(lock, 'utf8')).toBe('busy');
+  });
+});
+
+describe('saveNext', () => {
+  const graph = validateFlow({
+    start: 'first',
+    steps: {
+      first: {
+        instruction: 'First.',
+        outcome: { note: { type: 'string' } },
+        transitions: [{ to: 'last' }],
+      },
+      last: { instruction: 'Last.' },
+    },
+  });
+
+  it('saves a transition and completion as validated state and releases the lock', () => {
+    const directory = root();
+    saveStart(directory, graph, 'TASK-1');
+    const next = saveNext(directory, 'first', { note: 'value' });
+    expect(next).toMatchObject({
+      step: 'last',
+      finished: false,
+      outcomes: { first: { note: 'value' } },
+    });
+    expect(loadRun(directory)).toEqual(next);
+    expect(saveNext(directory, 'last', {})).toMatchObject({
+      finished: true,
+      outcomes: { last: {} },
+    });
+    const path = join(directory, '.stepan/run.json');
+    const finished = readFileSync(path, 'utf8');
+    expect(() => saveNext(directory, 'last', {})).toThrow('Run is finished.');
+    expect(readFileSync(path, 'utf8')).toBe(finished);
+    expect(fs.readdirSync(join(directory, '.stepan'))).toEqual(['run.json']);
+  });
+
+  it('rereads the current state after acquiring the lock', () => {
+    const directory = root();
+    const old = saveStart(directory, graph, 'TASK-1');
+    expect(loadRun(directory).step).toBe('first');
+    const text = JSON.stringify({ ...old, step: 'last' });
+    const open = fs.openSync;
+    vi.spyOn(fs, 'openSync').mockImplementation((...args: Parameters<typeof fs.openSync>) => {
+      const descriptor = open(...args);
+      if (args[0] === join(directory, '.stepan/start.lock')) {
+        expect(existsSync(join(directory, '.stepan/start.lock'))).toBe(true);
+        writeFileSync(join(directory, '.stepan/run.json'), text);
+      }
+      return descriptor;
+    });
+    expect(() => saveNext(directory, 'first', {})).toThrow('not current');
+    expect(readFileSync(join(directory, '.stepan/run.json'), 'utf8')).toBe(text);
+    expect(existsSync(join(directory, '.stepan/start.lock'))).toBe(false);
+  });
+
+  it('blocks both writers while applying the outcome', () => {
+    const directory = root();
+    saveStart(directory, graph, 'TASK-1');
+    let called = false;
+    const outcome = {
+      get note() {
+        called = true;
+        expect(() => saveStart(directory, graph, 'racing start')).toThrow('Another command');
+        expect(() => saveNext(directory, 'first', {})).toThrow('Another command');
+        return 'winner';
+      },
+    };
+    saveNext(directory, 'first', outcome);
+    expect(called).toBe(true);
+    expect(loadRun(directory).outcomes.first).toEqual({ note: 'winner' });
+  });
+
+  it.each([
+    { step: 'other', outcome: {}, message: 'not current' },
+    { step: 'first', outcome: { extra: 'x' }, message: 'unknown field' },
+  ])('preserves bytes and releases its lock on rejection (%#)', ({ step, outcome, message }) => {
+    const directory = root();
+    saveStart(directory, graph, 'TASK-1');
+    const path = join(directory, '.stepan/run.json');
+    const before = readFileSync(path, 'utf8');
+    expect(() => saveNext(directory, step, outcome)).toThrow(message);
+    expect(readFileSync(path, 'utf8')).toBe(before);
+    expect(existsSync(join(directory, '.stepan/start.lock'))).toBe(false);
+  });
+
+  it.each([
+    '{invalid',
+    JSON.stringify({ ...run(), version: 99 }),
+    JSON.stringify({ finished: true }),
+  ])('does not overwrite invalid stored state (%#)', (text) => {
+    const directory = root();
+    mkdirSync(join(directory, '.stepan'));
+    const path = join(directory, '.stepan/run.json');
+    writeFileSync(path, text);
+    expect(() => saveNext(directory, 'first', {})).toThrow();
+    expect(readFileSync(path, 'utf8')).toBe(text);
+    expect(existsSync(join(directory, '.stepan/start.lock'))).toBe(false);
+  });
+
+  it('refuses missing state without creating its directory', () => {
+    const directory = root();
+    expect(() => saveNext(directory, 'first', {})).toThrow();
+    expect(existsSync(join(directory, '.stepan'))).toBe(false);
+    mkdirSync(join(directory, '.stepan'));
+    expect(() => saveNext(directory, 'first', {})).toThrow('No run found');
+    expect(fs.readdirSync(join(directory, '.stepan'))).toEqual([]);
+  });
+
+  it('refuses an unreadable run path and releases its lock', () => {
+    const directory = root();
+    const path = join(directory, '.stepan/run.json');
+    mkdirSync(path, { recursive: true });
+    expect(() => saveNext(directory, 'first', {})).toThrow('Cannot read run');
+    expect(fs.readdirSync(path)).toEqual([]);
+    expect(existsSync(join(directory, '.stepan/start.lock'))).toBe(false);
+  });
+
+  it('does not change a busy lock or run', () => {
+    const directory = root();
+    saveStart(directory, graph, 'TASK-1');
+    const path = join(directory, '.stepan/run.json');
+    const before = readFileSync(path, 'utf8');
+    const lock = join(directory, '.stepan/start.lock');
+    writeFileSync(lock, 'busy');
+    expect(() => saveNext(directory, 'first', {})).toThrow('Another command');
+    expect(readFileSync(path, 'utf8')).toBe(before);
+    expect(readFileSync(lock, 'utf8')).toBe('busy');
+  });
+
+  it('releases its lock on a write failure without claiming success', () => {
+    const directory = root();
+    saveStart(directory, graph, 'TASK-1');
+    const path = join(directory, '.stepan/run.json');
+    const before = readFileSync(path, 'utf8');
+    const write = fs.writeFileSync;
+    vi.spyOn(fs, 'writeFileSync').mockImplementation(
+      (...args: Parameters<typeof fs.writeFileSync>) => {
+        if (args[0] === path) throw new Error('Write failed');
+        write(...args);
+      },
+    );
+    expect(() => saveNext(directory, 'first', {})).toThrow('Write failed');
+    expect(readFileSync(path, 'utf8')).toBe(before);
+    expect(existsSync(join(directory, '.stepan/start.lock'))).toBe(false);
   });
 });

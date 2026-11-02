@@ -3,7 +3,7 @@
 What Stepan is and how it behaves. This file describes the current intent; it is not a gate. A
 change that goes beyond it updates it in the same change.
 
-**State:** 0.1 is specified below; `start` and `current` are implemented. `next`, `abort` and
+**State:** 0.1 is specified below; `start`, `current` and `next` are implemented. `abort` and
 placeholder substitution are not implemented yet.
 
 ## Problem
@@ -174,6 +174,12 @@ A refused flow says what is wrong and, when there is a step or a key, names it.
   in the Step output format. A final step takes the outcome and finishes the run: that `next` call
   prints that the run is finished, and later `next` and `current` report the same (`current` exits
   0, `next` exits 1). If no transition matches, the command fails and the run is unchanged.
+- **`next` arguments** — the step id comes first, followed by long outcome flags. Both
+  `--field value` and `--field=value` work; use the latter for a value beginning with `-`.
+  Standalone `stepan next --help` or `stepan next -h` prints usage without reading the run.
+  After the step id, `help`, `h` and `version` are ordinary outcome field names, not reserved
+  options. An unreadable run, a finished run or a mismatched step is reported before parsing
+  outcome flags; otherwise malformed flags are usage errors.
 - **`abort`** — deletes the run; without a run it is an error.
 - Errors go to stderr and exit non-zero: 1 for a refused flow, a missing or unreadable run, a live
   run on `start`, a step that is not current, a bad outcome or no matching transition; 2 for wrong
