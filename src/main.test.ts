@@ -111,6 +111,29 @@ describe('next', () => {
     });
   });
 
+  it('substitutes from the saved state rather than the preliminary read', () => {
+    const saved = advanceRun(state, 'review', { verdict: 'pass', note: 'new value' });
+    saved.task = 'SAVED-TASK';
+    saved.flow = {
+      ...saved.flow,
+      steps: {
+        ...saved.flow.steps,
+        finish: {
+          instruction: '{{task}}: {{steps.review.outcome.verdict}}; {{steps.review.outcome.note}}.',
+          outcome: {},
+          transitions: [],
+        },
+      },
+    };
+    vi.mocked(store.saveNext).mockReturnValue(saved);
+    expect(capture(['next', 'review', '--verdict=pass', '--note', 'new value'])).toEqual({
+      code: 0,
+      stdout: 'SAVED-TASK: pass; new value.\n\nstepan next finish\n',
+      stderr: '',
+    });
+    expect(state.outcomes).toEqual({});
+  });
+
   it('does not reserve help, h, version or prototype property names after the step', () => {
     expect(
       capture([
@@ -277,6 +300,37 @@ describe('current', () => {
     });
     expect(roots.writeRoot).toHaveBeenCalledWith(process.cwd());
     expect(store.loadRun).toHaveBeenCalledWith('isolated-root');
+  });
+
+  it('substitutes the task and stored outcome without changing the loaded snapshot', () => {
+    const loaded: RunState = {
+      ...state,
+      outcomes: { plan: { path: 'docs/plan.md' } },
+      flow: {
+        ...state.flow,
+        steps: {
+          ...state.flow.steps,
+          plan: {
+            instruction: 'Plan.',
+            outcome: { path: { type: 'string' } },
+            transitions: [{ to: 'review' }],
+          },
+          review: {
+            instruction: '{{task}}: {{steps.plan.outcome.path}}.',
+            outcome: {},
+            transitions: [],
+          },
+        },
+      },
+    };
+    const before = structuredClone(loaded);
+    vi.mocked(store.loadRun).mockReturnValue(loaded);
+    expect(capture(['current'])).toEqual({
+      code: 0,
+      stdout: 'TASK-1: docs/plan.md.\n\nstepan next review\n',
+      stderr: '',
+    });
+    expect(loaded).toEqual(before);
   });
 
   it('reports a finished run instead of printing its step', () => {

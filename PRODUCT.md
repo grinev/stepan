@@ -3,8 +3,8 @@
 What Stepan is and how it behaves. This file describes the current intent; it is not a gate. A
 change that goes beyond it updates it in the same change.
 
-**State:** 0.1 is specified below; `start`, `current` and `next` are implemented. `abort` and
-placeholder substitution are not implemented yet.
+**State:** 0.1 is specified below; `start`, `current`, `next` and instruction placeholder
+substitution are implemented. `abort` is not implemented yet.
 
 ## Problem
 
@@ -102,7 +102,10 @@ when it needs rework; a failed review goes back to `implement`.
   transition has no `when`: it is the default, it is optional, and it must be last.
 - **Final step** — a step without transitions. `next` on it finishes the run. Cycles are allowed.
 - **Placeholders** — `{{task}}` and `{{steps.<id>.outcome.<field>}}` in an instruction are
-  replaced before it is printed. A placeholder that cannot be resolved stays as it is.
+  replaced before it is printed, using these exact forms without spaces inside the braces.
+  A placeholder that cannot be resolved stays as it is; a stored empty string replaces it with
+  empty text. Substitution runs once: task and outcome values are data rather than nested
+  templates. The snapshot keeps the original instruction text; substitution only affects output.
 - **Names** — a step id and an outcome field name start with an ASCII letter and continue with
   ASCII letters, digits, `-` or `_`. A step id is a positional argument and a placeholder segment;
   an outcome field name is a CLI flag and a placeholder segment.

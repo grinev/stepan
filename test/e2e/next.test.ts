@@ -28,9 +28,10 @@ steps:
     instruction: finish.md
 `;
 const PLAN =
-  'Plan {{task}}.\n\nstepan next plan --plan "<text>" [--note "<text>"] [--reason <small|large>]\n';
-const REVIEW =
-  'Review {{steps.plan.outcome.plan}}.\n\nstepan next review --verdict <pass|fail|hold> [--findings "<text>"]\n';
+  'Plan STP-4: задача.\n\nstepan next plan --plan "<text>" [--note "<text>"] [--reason <small|large>]\n';
+function reviewOutput(plan: string): string {
+  return `Review ${plan}.\n\nstepan next review --verdict <pass|fail|hold> [--findings "<text>"]\n`;
+}
 const FINISH = 'Finish.\n\nstepan next finish\n';
 
 function fixture(layout: 'installed' | 'sources' = 'installed', flow = FLOW): CliSandbox {
@@ -80,16 +81,16 @@ describe('stepan next', () => {
       success(
         cli,
         ['next', 'plan', '--plan', 'первый план', '--note', 'remove', '--reason', 'small'],
-        REVIEW,
+        reviewOutput('первый план'),
       );
       expect(readRun(cli)).toMatchObject({
         step: 'review',
         finished: false,
         outcomes: { plan: { plan: 'первый план', note: 'remove', reason: 'small' } },
       });
-      success(cli, ['current'], REVIEW);
+      success(cli, ['current'], reviewOutput('первый план'));
       success(cli, ['next', 'review', '--verdict', 'fail', '--findings', 'revise'], PLAN);
-      success(cli, ['next', 'plan', '--plan=новый план'], REVIEW);
+      success(cli, ['next', 'plan', '--plan=новый план'], reviewOutput('новый план'));
       expect(readRun(cli).outcomes).toEqual({
         plan: { plan: 'новый план' },
         review: { verdict: 'fail', findings: 'revise' },
@@ -148,10 +149,10 @@ describe('stepan next', () => {
     { args: ['--verdict', 'hold'], message: 'no matching transition' },
   ])('refuses a missing or invalid enum or unmatched transition (%#)', ({ args, message }) => {
     const cli = fixture();
-    success(cli, ['next', 'plan', '--plan', 'value'], REVIEW);
+    success(cli, ['next', 'plan', '--plan', 'value'], reviewOutput('value'));
     refusal(cli, ['next', 'review', ...args], 1, message);
     expect(readRun(cli).outcomes).toEqual({ plan: { plan: 'value' } });
-    success(cli, ['current'], REVIEW);
+    success(cli, ['current'], reviewOutput('value'));
   });
 
   it('uses the original schema, transitions and instructions after editing and removing flow files', () => {
@@ -162,7 +163,7 @@ describe('stepan next', () => {
       FLOW.replaceAll('plan', 'changed').replace('to: review', 'to: finish'),
     );
     writeFileSync(join(directory, 'review.md'), 'Changed instruction.');
-    success(cli, ['next', 'plan', '--plan', 'saved schema'], REVIEW);
+    success(cli, ['next', 'plan', '--plan', 'saved schema'], reviewOutput('saved schema'));
     rmSync(join(cli.cwd, 'flows'), { recursive: true });
     success(cli, ['next', 'review', '--verdict=fail'], PLAN);
     success(cli, ['current'], PLAN);
@@ -186,7 +187,7 @@ steps:
     success(
       cli,
       ['next', 'plan', '--note='],
-      'Plan {{task}}.\n\nstepan next plan [--note "<text>"]\n',
+      'Plan STP-4: задача.\n\nstepan next plan [--note "<text>"]\n',
     );
     expect(readRun(cli).outcomes.plan).toEqual({ note: '' });
     success(cli, ['next', 'plan'], FINISH);

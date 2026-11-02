@@ -56,7 +56,7 @@ describe('stepan start', () => {
     expect(result.code).toBe(0);
     expect(result.stderr).toBe('');
     expect(result.stdout).toBe(
-      'plan -> review\nreview -> verdict="fail" -> plan, verdict="pass" -> finish\nfinish (final)\n\nPlan {{task}}.\n\nstepan next plan --plan "<text>" [--note "<text>"]\n',
+      'plan -> review\nreview -> verdict="fail" -> plan, verdict="pass" -> finish\nfinish (final)\n\nPlan STP-2: задача.\n\nstepan next plan --plan "<text>" [--note "<text>"]\n',
     );
     expect(readRun(cli)).toEqual({
       version: 1,

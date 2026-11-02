@@ -80,7 +80,7 @@ function start(argv: readonly string[], out: Output): number {
     const run = saveStart(writeRoot(cwd), flow, task);
     const step = flow.steps[run.step];
     if (step === undefined) throw new Error(`Unknown start step '${run.step}'`);
-    out.stdout(`${graphOverview(flow)}\n\n${stepOutput(run.step, step)}`);
+    out.stdout(`${graphOverview(flow)}\n\n${stepOutput(run.step, step, run)}`);
     return 0;
   } catch (error) {
     out.stderr(`stepan: ${error instanceof Error ? error.message : String(error)}\n`);
@@ -117,7 +117,7 @@ function current(argv: readonly string[], out: Output): number {
     }
     const step = run.flow.steps[run.step];
     if (step === undefined) throw new Error(`Unknown current step '${run.step}'`);
-    out.stdout(stepOutput(run.step, step));
+    out.stdout(stepOutput(run.step, step, run));
     return 0;
   } catch (error) {
     out.stderr(`stepan: ${error instanceof Error ? error.message : String(error)}\n`);
@@ -149,7 +149,7 @@ function next(argv: readonly string[], out: Output): number {
     }
     const run = saveNext(root, id, outcome);
     if (run.finished) out.stdout('Run is finished.\n');
-    else out.stdout(stepOutput(run.step, currentStep(run, run.step)));
+    else out.stdout(stepOutput(run.step, currentStep(run, run.step), run));
     return 0;
   } catch (error) {
     out.stderr(`stepan: ${error instanceof Error ? error.message : String(error)}\n`);

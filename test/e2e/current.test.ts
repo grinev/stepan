@@ -19,7 +19,7 @@ steps:
     instruction: finish.md
 `;
 const STEP_OUTPUT =
-  'Plan {{task}}.\n\nstepan next plan --plan "<text>" [--note "<text>"] --verdict <pass|fail> [--reason <small|large>]\n';
+  'Plan STP-3: задача.\n\nstepan next plan --plan "<text>" [--note "<text>"] --verdict <pass|fail> [--reason <small|large>]\n';
 
 function fixture(layout: 'installed' | 'sources' = 'installed'): CliSandbox {
   const cli = createCli(layout);
