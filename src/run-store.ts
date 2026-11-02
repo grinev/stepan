@@ -69,6 +69,13 @@ function readRun(path: string): RunState | undefined {
   }
 }
 
+export function loadRun(root: string): RunState {
+  const path = join(root, '.stepan', 'run.json');
+  const run = readRun(path);
+  if (run === undefined) throw new Error(`No run found: ${path}`);
+  return run;
+}
+
 /** The lock covers the read as well as the write, including replacement of a finished run. */
 export function saveStart(root: string, flow: Flow, task: string): RunState {
   const directory = join(root, '.stepan');

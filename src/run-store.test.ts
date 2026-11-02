@@ -1,13 +1,32 @@
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { validateFlow, type Flow } from './flow.js';
-import { saveStart, validateRun, type RunState } from './run-store.js';
+import { loadRun, saveStart, validateRun, type RunState } from './run-store.js';
 
 const flow = validateFlow({ start: 'first', steps: { first: { instruction: 'Instruction.' } } });
 function run(): RunState {
   return { version: 1, task: 'TASK-1', step: 'first', finished: false, flow, outcomes: {} };
+}
+
+const directories: string[] = [];
+afterEach(() => {
+  for (const directory of directories.splice(0))
+    rmSync(directory, { recursive: true, force: true });
+});
+function root(): string {
+  const directory = mkdtempSync(join(tmpdir(), 'stepan-store-'));
+  directories.push(directory);
+  return directory;
 }
 
 describe('validateRun', () => {
@@ -85,18 +104,51 @@ describe('validateRun', () => {
   });
 });
 
-describe('saveStart', () => {
-  const directories: string[] = [];
-  afterEach(() => {
-    for (const directory of directories.splice(0))
-      rmSync(directory, { recursive: true, force: true });
+describe('loadRun', () => {
+  it.each([false, true])('reads a snapshot without writing (finished=%s)', (finished) => {
+    const directory = root();
+    const state = { ...run(), finished };
+    const text = JSON.stringify(state);
+    mkdirSync(join(directory, '.stepan'));
+    const path = join(directory, '.stepan/run.json');
+    writeFileSync(path, text);
+    expect(loadRun(directory)).toEqual(state);
+    expect(readFileSync(path, 'utf8')).toBe(text);
+    expect(readdirSync(join(directory, '.stepan'))).toEqual(['run.json']);
   });
-  function root(): string {
-    const directory = mkdtempSync(join(tmpdir(), 'stepan-store-'));
-    directories.push(directory);
-    return directory;
-  }
 
+  it('reports a missing run without creating its directory', () => {
+    const directory = root();
+    expect(() => loadRun(directory)).toThrow('No run found');
+    expect(existsSync(join(directory, '.stepan'))).toBe(false);
+  });
+
+  it.each([
+    ['{invalid', 'JSON'],
+    [JSON.stringify({ ...run(), version: 99 }), 'Unsupported run version'],
+    [JSON.stringify({ ...run(), step: 'missing' }), 'run.step'],
+    [JSON.stringify({ finished: true }), 'version'],
+  ])('refuses invalid state without changing its bytes (%#)', (text, message) => {
+    const directory = root();
+    mkdirSync(join(directory, '.stepan'));
+    const path = join(directory, '.stepan/run.json');
+    writeFileSync(path, text);
+    expect(() => loadRun(directory)).toThrow(message);
+    expect(readFileSync(path, 'utf8')).toBe(text);
+    expect(readdirSync(join(directory, '.stepan'))).toEqual(['run.json']);
+  });
+
+  it('reports an unreadable run path without changing it', () => {
+    const directory = root();
+    const path = join(directory, '.stepan/run.json');
+    mkdirSync(path, { recursive: true });
+    expect(() => loadRun(directory)).toThrow('Cannot read run');
+    expect(readdirSync(path)).toEqual([]);
+    expect(readdirSync(join(directory, '.stepan'))).toEqual(['run.json']);
+  });
+});
+
+describe('saveStart', () => {
   it('creates a snapshot and refuses a live run without changing bytes', () => {
     const directory = root();
     expect(saveStart(directory, flow, 'TASK-1')).toEqual(run());
