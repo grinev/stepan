@@ -9,6 +9,9 @@ dist/
 # State written by stepan when run from sources (docs/development.md)
 .dev-data/
 
+# Local run state; keep .stepan/flows/ under version control
+.stepan/runs/
+
 # Tests
 coverage/
 

@@ -55,8 +55,14 @@ that someone forgets to set. `writeRoot` in `src/write-root.ts` detects a source
 presence of both `src/cli.ts` and `tsconfig.build.json` next to the package's `dist/`. These files
 are not published (the package includes only `dist/` and package metadata). The source write root
 is always the checkout's `.dev-data/`, even when the command's working directory is elsewhere;
-installed packages use the working directory. Flow input is always read from the working
-directory. Every later write location must use this same resolver.
+installed packages use the working directory. Flow input is always read from
+`<working directory>/.stepan/flows/<name>/`, in both modes, independently of the write root.
+Every later write location must use this same resolver.
+
+Definitions and state share `.stepan/` to avoid reserving a generic top-level `flows/` directory.
+Commit `.stepan/flows/` and ignore only `.stepan/runs/`, not the whole `.stepan/` directory.
+Source-mode state stays inside the ignored `.dev-data/`; it is not written alongside the input
+definitions. There is no global lookup or fallback to a top-level `flows/` directory.
 
 Runs use `<write root>/.stepan/runs/<run-id>.json`, format version 1. IDs are eight lowercase
 hex characters generated with `node:crypto.randomBytes(4)` and are validated before file access;

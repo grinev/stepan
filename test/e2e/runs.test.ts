@@ -6,7 +6,7 @@ import { createCli, runCli, runId, runPath, startCli, type CliSandbox } from './
 const ID = 'a7c93f2b';
 function fixture(layout: 'installed' | 'sources' = 'installed'): CliSandbox {
   const cli = createCli(layout);
-  const directory = join(cli.cwd, 'flows/feature');
+  const directory = join(cli.cwd, '.stepan/flows/feature');
   mkdirSync(directory, { recursive: true });
   writeFileSync(
     join(directory, 'flow.yaml'),

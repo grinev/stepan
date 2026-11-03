@@ -38,7 +38,7 @@ const FINISHED = 'Run RUN-ID is finished.\n';
 
 function fixture(layout: 'installed' | 'sources' = 'installed', flow = FLOW): RunningCli {
   const cli = createCli(layout);
-  const directory = join(cli.cwd, 'flows/feature');
+  const directory = join(cli.cwd, '.stepan/flows/feature');
   mkdirSync(directory, { recursive: true });
   writeFileSync(join(directory, 'flow.yaml'), flow);
   writeFileSync(join(directory, 'plan.md'), 'Plan {{task}}.\n');
@@ -107,7 +107,7 @@ describe('stepan next', () => {
       refusal(cli, ['next', cli.id], 1, 'is finished.');
       refusal(cli, ['next', cli.id, '--unknown'], 1, 'is finished.');
       const other =
-        layout === 'sources' ? join(cli.cwd, '.stepan') : join(cli.packageRoot, '.dev-data');
+        layout === 'sources' ? join(cli.cwd, '.stepan/runs') : join(cli.packageRoot, '.dev-data');
       expect(existsSync(other)).toBe(false);
       for (const path of ['.stepan', '.config', 'AppData', '.local'])
         expect(existsSync(join(cli.sandbox, path))).toBe(false);
@@ -150,14 +150,14 @@ describe('stepan next', () => {
 
   it('uses the snapshot after editing and removing flow files', () => {
     const cli = fixture();
-    const directory = join(cli.cwd, 'flows/feature');
+    const directory = join(cli.cwd, '.stepan/flows/feature');
     writeFileSync(
       join(directory, 'flow.yaml'),
       FLOW.replaceAll('plan', 'changed').replace('to: review', 'to: finish'),
     );
     writeFileSync(join(directory, 'review.md'), 'Changed instruction.');
     success(cli, ['next', cli.id, '--plan=saved schema'], reviewOutput('saved schema'));
-    rmSync(join(cli.cwd, 'flows'), { recursive: true });
+    rmSync(join(cli.cwd, '.stepan/flows'), { recursive: true });
     success(cli, ['next', cli.id, '--verdict=fail'], PLAN);
     success(cli, ['current', cli.id], PLAN);
   });

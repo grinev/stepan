@@ -28,7 +28,7 @@ your task tracker: tracker commands will be declared in the flow, not built into
 
 ## Available now
 
-Put `flow.yaml` and the Markdown instructions in `flows/<name>/` in your working directory; the
+Put `flow.yaml` and the Markdown instructions in `.stepan/flows/<name>/` in your working directory; the
 format is specified in [PRODUCT.md](./PRODUCT.md#flow). Then run:
 
 ```sh
@@ -38,6 +38,10 @@ stepan next <run-id> --<field> <value>
 stepan rm <run-id>
 stepan runs [--all]
 ```
+
+Keep `.stepan/flows/` in Git. Add only `.stepan/runs/` to your project's `.gitignore` for local
+run state; do not ignore all of `.stepan/`. Flow definitions are read only from the working
+directory's `.stepan/flows/`, with no global lookup or fallback to a top-level `flows/` directory.
 
 `start` validates the entire flow, saves a snapshot of its graph and instruction texts, and prints
 the graph and first instruction with a `stepan next` exit template. Replace the template values

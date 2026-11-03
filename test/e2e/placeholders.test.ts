@@ -42,7 +42,7 @@ function fixture(
   layout: 'installed' | 'sources' = 'installed',
 ): Fixture {
   const cli = createCli(layout);
-  const directory = join(cli.cwd, 'flows/feature');
+  const directory = join(cli.cwd, '.stepan/flows/feature');
   mkdirSync(directory, { recursive: true });
   writeFileSync(join(directory, 'flow.yaml'), flow);
   for (const [id, text] of Object.entries(instructions))
@@ -96,7 +96,7 @@ describe('instruction placeholders', () => {
       }
       current(cli, planOutput());
 
-      const directory = join(cli.cwd, 'flows/feature');
+      const directory = join(cli.cwd, '.stepan/flows/feature');
       writeFileSync(join(directory, 'flow.yaml'), 'changed: true');
       writeFileSync(join(directory, 'plan.md'), 'Changed instruction.');
       writeFileSync(join(directory, 'review.md'), 'Changed review.');
@@ -110,7 +110,7 @@ describe('instruction placeholders', () => {
       current(cli, reviewOutput('docs/first plan.md', 'old note'));
       success(cli, ['next', cli.id, '--verdict=fail'], planOutput('docs/first plan.md'));
 
-      rmSync(join(cli.cwd, 'flows'), { recursive: true });
+      rmSync(join(cli.cwd, '.stepan/flows'), { recursive: true });
       success(
         cli,
         ['next', cli.id, '--path', 'docs/second plan.md'],
@@ -129,7 +129,7 @@ describe('instruction placeholders', () => {
       expect(readRun(cli).flow).toEqual(snapshot);
 
       const other =
-        layout === 'sources' ? join(cli.cwd, '.stepan') : join(cli.packageRoot, '.dev-data');
+        layout === 'sources' ? join(cli.cwd, '.stepan/runs') : join(cli.packageRoot, '.dev-data');
       expect(existsSync(other)).toBe(false);
       for (const path of ['.stepan', '.config', 'AppData', '.local']) {
         expect(existsSync(join(cli.sandbox, path))).toBe(false);

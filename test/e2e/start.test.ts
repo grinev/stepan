@@ -1,4 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createCli, runCli, runId, runPath, type CliSandbox } from './run-cli.js';
@@ -31,10 +38,10 @@ function put(cli: CliSandbox, path: string, text: string): void {
 }
 function fixture(layout: 'installed' | 'sources' = 'installed'): CliSandbox {
   const cli = createCli(layout);
-  put(cli, 'flows/feature/flow.yaml', FLOW);
-  put(cli, 'flows/feature/plan.md', 'Plan {{task}}.\n');
-  put(cli, 'flows/feature/review.md', 'Review {{steps.plan.outcome.plan}}.\n');
-  put(cli, 'flows/feature/finish.md', 'Finish.\n');
+  put(cli, '.stepan/flows/feature/flow.yaml', FLOW);
+  put(cli, '.stepan/flows/feature/plan.md', 'Plan {{task}}.\n');
+  put(cli, '.stepan/flows/feature/review.md', 'Review {{steps.plan.outcome.plan}}.\n');
+  put(cli, '.stepan/flows/feature/finish.md', 'Finish.\n');
   return cli;
 }
 
@@ -78,8 +85,8 @@ describe('stepan start', () => {
     });
     expect(readdirSync(cli.runsDirectory)).toEqual([`${id}.json`]);
     const before = readFileSync(path, 'utf8');
-    put(cli, 'flows/feature/flow.yaml', 'changed: true');
-    put(cli, 'flows/feature/plan.md', 'Changed instruction.');
+    put(cli, '.stepan/flows/feature/flow.yaml', 'changed: true');
+    put(cli, '.stepan/flows/feature/plan.md', 'Changed instruction.');
     expect(readFileSync(path, 'utf8')).toBe(before);
   });
 
@@ -88,20 +95,52 @@ describe('stepan start', () => {
     const id = runId(runCli(['start', 'feature', 'TASK-1'], cli));
     expect(existsSync(runPath(cli, id))).toBe(true);
     const other =
-      layout === 'sources' ? join(cli.cwd, '.stepan') : join(cli.packageRoot, '.dev-data');
+      layout === 'sources' ? join(cli.cwd, '.stepan/runs') : join(cli.packageRoot, '.dev-data');
     expect(existsSync(other)).toBe(false);
     for (const path of ['.stepan', '.config', 'AppData', '.local'])
       expect(existsSync(join(cli.sandbox, path))).toBe(false);
   });
 
+  it.each(['installed', 'sources'] as const)(
+    'does not fall back to a top-level flows directory in %s mode',
+    (layout) => {
+      const cli = fixture(layout);
+      renameSync(join(cli.cwd, '.stepan/flows'), join(cli.cwd, 'flows'));
+      const result = runCli(['start', 'feature', 'TASK-1'], cli);
+      expect(result).toMatchObject({ code: 1, stdout: '' });
+      expect(result.stderr).toContain(join(cli.cwd, '.stepan/flows/feature/flow.yaml'));
+      expect(existsSync(cli.runsDirectory)).toBe(false);
+      expect(readFileSync(join(cli.cwd, 'flows/feature/flow.yaml'), 'utf8')).toBe(FLOW);
+      expect(readFileSync(join(cli.cwd, 'flows/feature/plan.md'), 'utf8')).toBe('Plan {{task}}.\n');
+    },
+  );
+
+  it.each(['installed', 'sources'] as const)(
+    'uses .stepan/flows when both flow directories exist in %s mode',
+    (layout) => {
+      const cli = fixture(layout);
+      const oldYaml = 'start: old\nsteps:\n  old: {instruction: old.md}\n';
+      put(cli, 'flows/feature/flow.yaml', oldYaml);
+      put(cli, 'flows/feature/old.md', 'Old instruction.');
+      const result = runCli(['start', 'feature', 'TASK-1'], cli);
+      const id = runId(result);
+      expect(result.stderr).toBe('');
+      expect(result.stdout).toContain('Plan TASK-1.');
+      expect(result.stdout).not.toContain('Old instruction.');
+      expect(existsSync(runPath(cli, id))).toBe(true);
+      expect(readFileSync(join(cli.cwd, 'flows/feature/flow.yaml'), 'utf8')).toBe(oldYaml);
+      expect(readFileSync(join(cli.cwd, 'flows/feature/old.md'), 'utf8')).toBe('Old instruction.');
+    },
+  );
+
   it('supports final steps without outcomes and -- before positional values', () => {
     const cli = fixture();
     put(
       cli,
-      'flows/-flow/flow.yaml',
+      '.stepan/flows/-flow/flow.yaml',
       'start: done\nsteps:\n  done: {instruction: done.md, outcome: null, transitions: []}\n',
     );
-    put(cli, 'flows/-flow/done.md', 'Done.');
+    put(cli, '.stepan/flows/-flow/done.md', 'Done.');
     const result = runCli(['start', '--', '-flow', '-task'], cli);
     const id = runId(result);
     expect(result.stdout).toBe(
@@ -117,7 +156,7 @@ describe('stepan start', () => {
     const cli = fixture();
     put(
       cli,
-      'flows/feature/flow.yaml',
+      '.stepan/flows/feature/flow.yaml',
       'start: review\nsteps:\n  review:\n    instruction: review.md\n    outcome:\n      verdict: {type: enum, values: [pass, fail], required: true}\n      note: {type: enum, values: [yes, no]}\n',
     );
     const result = runCli(['start', 'feature', 'TASK-1'], cli);
@@ -179,7 +218,7 @@ describe('stepan start', () => {
     ],
   ])('rejects invalid flows before creating state (%#)', (yaml, message) => {
     const cli = fixture();
-    put(cli, 'flows/feature/flow.yaml', yaml);
+    put(cli, '.stepan/flows/feature/flow.yaml', yaml);
     const result = runCli(['start', 'feature', 'TASK-1'], cli);
     expect(result).toMatchObject({ code: 1, stdout: '' });
     expect(result.stderr).toContain(message);
@@ -208,7 +247,7 @@ describe('stepan start', () => {
       finished: true,
     });
     writeFileSync(path, finished);
-    put(cli, 'flows/bad/flow.yaml', 'invalid: true');
+    put(cli, '.stepan/flows/bad/flow.yaml', 'invalid: true');
     expect(runCli(['start', 'bad', 'TASK-2'], cli).code).toBe(1);
     runId(runCli(['start', 'feature', 'TASK-2'], cli));
     expect(readFileSync(path, 'utf8')).toBe(finished);
@@ -238,11 +277,14 @@ describe('stepan start', () => {
 
   it('reports filesystem failures without success output or a stack trace', () => {
     const cli = fixture();
-    writeFileSync(join(cli.cwd, '.stepan'), 'not a directory');
+    const definition = join(cli.cwd, '.stepan/flows/feature/flow.yaml');
+    writeFileSync(cli.runsDirectory, 'not a directory');
     const result = runCli(['start', 'feature', 'TASK-1'], cli);
     expect(result).toMatchObject({ code: 1, stdout: '' });
-    expect(result.stderr).toContain('.stepan');
+    expect(result.stderr).toContain(cli.runsDirectory);
     expect(result.stderr).not.toContain('\n    at ');
+    expect(readFileSync(cli.runsDirectory, 'utf8')).toBe('not a directory');
+    expect(readFileSync(definition, 'utf8')).toBe(FLOW);
   });
 
   it.each([
@@ -254,7 +296,7 @@ describe('stepan start', () => {
     const cli = fixture();
     put(
       cli,
-      'flows/feature/flow.yaml',
+      '.stepan/flows/feature/flow.yaml',
       `start: plan\nsteps:\n  plan:\n    instruction: plan.md\n    outcome:\n${fields}\n`,
     );
     const result = runCli(['start', 'feature', 'TASK-1'], cli);

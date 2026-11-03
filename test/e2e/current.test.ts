@@ -21,7 +21,7 @@ steps:
 `;
 function fixture(layout: 'installed' | 'sources' = 'installed'): RunningCli {
   const cli = createCli(layout);
-  const directory = join(cli.cwd, 'flows/feature');
+  const directory = join(cli.cwd, '.stepan/flows/feature');
   mkdirSync(directory, { recursive: true });
   writeFileSync(join(directory, 'flow.yaml'), FLOW);
   writeFileSync(join(directory, 'plan.md'), 'Plan {{task}}.\n');
@@ -49,14 +49,14 @@ describe('stepan current', () => {
     (layout) => {
       const cli = fixture(layout);
       expectStep(cli);
-      const directory = join(cli.cwd, 'flows/feature');
+      const directory = join(cli.cwd, '.stepan/flows/feature');
       writeFileSync(join(directory, 'flow.yaml'), FLOW.replaceAll('plan', 'different'));
       writeFileSync(join(directory, 'plan.md'), 'Changed instruction.');
       expectStep(cli);
-      rmSync(join(cli.cwd, 'flows'), { recursive: true });
+      rmSync(join(cli.cwd, '.stepan/flows'), { recursive: true });
       expectStep(cli);
       const other =
-        layout === 'sources' ? join(cli.cwd, '.stepan') : join(cli.packageRoot, '.dev-data');
+        layout === 'sources' ? join(cli.cwd, '.stepan/runs') : join(cli.packageRoot, '.dev-data');
       expect(existsSync(other)).toBe(false);
     },
   );

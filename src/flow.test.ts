@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -161,7 +161,7 @@ describe('loadFlow', () => {
   function fixture(yaml: string): string {
     const cwd = mkdtempSync(join(tmpdir(), 'stepan-flow-'));
     directories.push(cwd);
-    const flow = join(cwd, 'flows', 'example');
+    const flow = join(cwd, '.stepan', 'flows', 'example');
     mkdirSync(flow, { recursive: true });
     writeFileSync(join(flow, 'flow.yaml'), yaml);
     return cwd;
@@ -171,14 +171,37 @@ describe('loadFlow', () => {
     const cwd = fixture(
       'start: first\nsteps:\n  first:\n    instruction: first.md\n  last:\n    instruction: last.md\n',
     );
-    writeFileSync(join(cwd, 'flows/example/first.md'), 'Task {{task}}');
-    writeFileSync(join(cwd, 'flows/example/last.md'), 'Последний шаг');
+    writeFileSync(join(cwd, '.stepan/flows/example/first.md'), 'Task {{task}}');
+    writeFileSync(join(cwd, '.stepan/flows/example/last.md'), 'Последний шаг');
     expect(loadFlow(cwd, 'example').steps.last?.instruction).toBe('Последний шаг');
     expect(loadFlow(cwd, 'example').steps.first?.instruction).toBe('Task {{task}}');
   });
 
-  it.each(['../outside', '/absolute', '.', ''])('rejects flow names outside flows: %s', (flow) => {
-    expect(() => loadFlow('project', flow)).toThrow('Invalid flow name');
+  it.each(['../outside', '/absolute', '.', ''])(
+    'rejects flow names outside .stepan/flows: %s',
+    (flow) => {
+      expect(() => loadFlow('project', flow)).toThrow(
+        `Invalid flow name '${flow}': expected a directory under .stepan/flows/`,
+      );
+    },
+  );
+
+  it('does not fall back to the root flows directory', () => {
+    const cwd = fixture('start: first\nsteps:\n  first: {instruction: first.md}\n');
+    writeFileSync(join(cwd, '.stepan/flows/example/first.md'), 'Old instruction.');
+    renameSync(join(cwd, '.stepan/flows'), join(cwd, 'flows'));
+    expect(() => loadFlow(cwd, 'example')).toThrow(join(cwd, '.stepan/flows/example/flow.yaml'));
+  });
+
+  it('uses .stepan/flows even when a root flows directory exists', () => {
+    const yaml = 'start: first\nsteps:\n  first: {instruction: first.md}\n';
+    const cwd = fixture(yaml);
+    writeFileSync(join(cwd, '.stepan/flows/example/first.md'), 'Project instruction.');
+    const old = join(cwd, 'flows/example');
+    mkdirSync(old, { recursive: true });
+    writeFileSync(join(old, 'flow.yaml'), yaml);
+    writeFileSync(join(old, 'first.md'), 'Old instruction.');
+    expect(loadFlow(cwd, 'example').steps.first?.instruction).toBe('Project instruction.');
   });
 
   it.each([
@@ -205,13 +228,13 @@ describe('loadFlow', () => {
     const cwd = fixture(
       `start: first\nsteps:\n  first:\n    instruction: first.md\n    outcome:\n${fields}\n`,
     );
-    writeFileSync(join(cwd, 'flows/example/first.md'), 'Instruction.');
+    writeFileSync(join(cwd, '.stepan/flows/example/first.md'), 'Instruction.');
     expect(() => loadFlow(cwd, 'example')).toThrow(/key/);
   });
 
   it('supports valid string aliases as mapping keys without coercion', () => {
     const cwd = fixture('start: &id first\nsteps:\n  ? *id\n  : {instruction: first.md}\n');
-    writeFileSync(join(cwd, 'flows/example/first.md'), 'Instruction.');
+    writeFileSync(join(cwd, '.stepan/flows/example/first.md'), 'Instruction.');
     expect(loadFlow(cwd, 'example').steps.first?.instruction).toBe('Instruction.');
   });
 });

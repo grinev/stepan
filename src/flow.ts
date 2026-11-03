@@ -146,7 +146,7 @@ export function validateFlow(value: unknown): Flow {
 }
 
 export function loadFlow(cwd: string, flowName: string): Flow {
-  const base = resolve(cwd, 'flows');
+  const base = resolve(cwd, '.stepan', 'flows');
   const directory = resolve(base, flowName);
   const path = relative(base, directory);
   if (
@@ -156,7 +156,7 @@ export function loadFlow(cwd: string, flowName: string): Flow {
     path === '..' ||
     path.startsWith(`..${sep}`)
   ) {
-    throw new Error(`Invalid flow name '${flowName}': expected a directory under flows/`);
+    throw new Error(`Invalid flow name '${flowName}': expected a directory under .stepan/flows/`);
   }
   const yamlPath = resolve(directory, 'flow.yaml');
   const document = parseDocument(readFileSync(yamlPath, 'utf8'), { schema: 'core' });

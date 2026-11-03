@@ -38,10 +38,10 @@ No checks, no hooks, no tracker. This section is the contract; code follows it, 
 
 ### Flow
 
-A flow is a directory `flows/<name>/` with `flow.yaml` and one Markdown instruction per step:
+A flow is a directory `.stepan/flows/<name>/` with `flow.yaml` and one Markdown instruction per step:
 
 ```
-flows/feature/
+.stepan/flows/feature/
   flow.yaml
   plan.md
   implement.md
@@ -49,8 +49,13 @@ flows/feature/
   finish.md
 ```
 
-`stepan start feature <task>` reads `flows/feature/flow.yaml`; instruction paths are relative to
+`stepan start feature <task>` reads `.stepan/flows/feature/flow.yaml`; instruction paths are relative to
 that directory.
+
+Flow definitions and run state share `.stepan/` so Stepan does not reserve a generic top-level
+`flows/` directory. Commit `.stepan/flows/`; add only `.stepan/runs/` to `.gitignore`, not all of
+`.stepan/`. Flow input always comes from the working directory, with no global lookup or fallback
+to a top-level `flows/` directory.
 
 ```yaml
 start: plan
@@ -171,8 +176,8 @@ A refused flow says what is wrong and, when there is a step or a key, names it.
 | `stepan runs`                            | lists active runs                                               |
 | `stepan runs --all`                      | lists active and retained finished runs                         |
 
-- `<flow>` names a directory under `flows/` in the working directory: `stepan start feature` reads
-  `flows/feature/flow.yaml`. `<task>` is any non-empty string kept in the run for `{{task}}`;
+- `<flow>` names a directory under `.stepan/flows/` in the working directory: `stepan start feature`
+  reads `.stepan/flows/feature/flow.yaml`. `<task>` is any non-empty string kept in the run for `{{task}}`;
   Stepan does not resolve it against a tracker.
 - **Graph overview** — a line per step: the step, each transition with the value that selects it,
   and `(final)` for a step without transitions.
