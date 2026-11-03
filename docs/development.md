@@ -58,16 +58,30 @@ is always the checkout's `.dev-data/`, even when the command's working directory
 installed packages use the working directory. Flow input is always read from the working
 directory. Every later write location must use this same resolver.
 
-`start` and `next` save `<write root>/.stepan/run.json`. Both take an exclusive
-`<write root>/.stepan/start.lock` across reading the current state, deciding and writing. The name
-is historical: keeping it avoids ignoring a lock left by an earlier version. This prevents two
-starts from replacing the same finished run and prevents competing transitions from overwriting
-one another. `next` first reads the snapshot for its dynamic CLI flags, but rereads and validates
-the actual state under the lock before applying the outcome; it never saves that preliminary read.
-`current` only reads and does not acquire a lock.
+Runs use `<write root>/.stepan/runs/<run-id>.json`, format version 1. IDs are eight lowercase
+hex characters generated with `node:crypto.randomBytes(4)` and are validated before file access;
+the stored ID must match the filename. The file also stores `flowName` for listing, in addition
+to the task, step, finished flag, flow snapshot and outcomes. Every `start` creates a new run with
+exclusive creation (`wx`); a collision generates another ID, up to ten attempts, without replacing
+existing files. Finished runs are retained until explicitly deleted with `abort`.
+
+`next` and `abort` take an exclusive `<write root>/.stepan/runs/<run-id>.lock`. Different runs
+do not share a lock. `next` reads the actual state, parses dynamic outcome flags against that
+state's current step, validates the outcome and writes the transition under the same lock.
+The store accepts a callback over current state; CLI parsing stays in `main`, not in the core.
+There is no preliminary snapshot read or externally supplied step argument.
+`abort` unlinks the selected file without parsing it, allowing damaged runs to be removed.
+`current` and `runs` only read and do not acquire locks or create directories.
+
+`runs` reads and validates run files, sorts by ID and filters finished runs unless `--all` is
+given. It ignores lock files, but reports invalid or unreadable run files instead of hiding them.
+Output is a header followed by tab-separated, JSON-quoted cells, so multiline tasks do not break
+row boundaries. Selection always requires an explicit full ID: an implicit latest run would let
+parallel sessions operate on each other's state. A run is normally driven by one session; this
+is state isolation, not working-tree isolation or a binding to a specific harness.
 
 The lock is released on ordinary success or failure. If a process crashes and leaves it behind,
-confirm no `start` or `next` is running before manually removing it; Stepan does not guess whether
+confirm no `next` or `abort` for that run is running before manually removing it; Stepan does not guess whether
 it is stale. Writes are synchronous JSON writes, not atomic replacements: this is not crash
 recovery for an interrupted state-file write, and a failure during the write can leave unreadable
 state. Harness configuration and hooks are not implemented yet.

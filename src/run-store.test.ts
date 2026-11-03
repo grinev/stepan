@@ -7,24 +7,54 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import * as fs from 'node:fs';
+import * as crypto from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import * as fs from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { validateFlow, type Flow } from './flow.js';
-import { loadRun, saveNext, saveStart, validateRun } from './run-store.js';
-import type { RunState } from './run.js';
+import { validateFlow } from './flow.js';
+import {
+  abortRun,
+  listRuns,
+  loadRun,
+  saveStart,
+  updateRun,
+  validateRun,
+  validateRunId,
+} from './run-store.js';
+import { advanceRun, type RunState } from './run.js';
 
-// Native ESM exports cannot be spied on directly; keep real I/O behind a configurable facade.
-vi.mock('node:fs', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('node:fs')>()),
+// Native ESM exports cannot be spied on directly; keep real I/O behind configurable facades.
+vi.mock('node:fs', async (original) => ({ ...(await original<typeof import('node:fs')>()) }));
+vi.mock('node:crypto', async (original) => ({
+  ...(await original<typeof import('node:crypto')>()),
 }));
 
-const flow = validateFlow({ start: 'first', steps: { first: { instruction: 'Instruction.' } } });
-function run(): RunState {
-  return { version: 1, task: 'TASK-1', step: 'first', finished: false, flow, outcomes: {} };
+const ID = 'a7c93f2b';
+const OTHER = 'b7c93f2b';
+const flow = validateFlow({
+  start: 'first',
+  steps: {
+    first: {
+      instruction: 'First.',
+      outcome: { note: { type: 'string' } },
+      transitions: [{ to: 'last' }],
+    },
+    last: { instruction: 'Last.' },
+  },
+});
+function state(): RunState {
+  return {
+    version: 1,
+    id: ID,
+    flowName: 'feature',
+    task: 'TASK-1',
+    step: 'first',
+    finished: false,
+    flow,
+    outcomes: {},
+  };
 }
-
 const directories: string[] = [];
 afterEach(() => {
   vi.restoreAllMocks();
@@ -36,51 +66,46 @@ function root(): string {
   directories.push(directory);
   return directory;
 }
+function path(root: string, id = ID): string {
+  return join(root, '.stepan/runs', `${id}.json`);
+}
+function lock(root: string, id = ID): string {
+  return join(root, '.stepan/runs', `${id}.lock`);
+}
+function put(root: string, text = JSON.stringify(state())): void {
+  mkdirSync(join(root, '.stepan/runs'), { recursive: true });
+  writeFileSync(path(root), text);
+}
 
 describe('validateRun', () => {
-  it('accepts a valid snapshot, including completed outcomes', () => {
-    expect(validateRun(run())).toEqual(run());
-    const snapshot = {
-      ...run(),
-      flow: validateFlow({
-        start: 'first',
-        steps: {
-          first: {
-            instruction: '',
-            outcome: { verdict: { type: 'enum', values: ['pass'], required: true } },
-          },
-        },
-      }),
-      outcomes: { first: { verdict: 'pass' } },
-      finished: true,
-    };
-    expect(validateRun(snapshot)).toEqual(snapshot);
+  it('accepts snapshots and completed outcomes', () => {
+    expect(validateRun(state())).toEqual(state());
+    const value = { ...state(), finished: true, outcomes: { first: { note: 'saved' }, last: {} } };
+    expect(validateRun(value)).toEqual(value);
   });
 
   it.each([
     [null, 'run'],
-    [{ ...run(), version: 2 }, 'version'],
-    [{ ...run(), task: '' }, 'task'],
-    [{ ...run(), finished: 'yes' }, 'finished'],
-    [{ ...run(), flow: null }, 'flow'],
-    [{ ...run(), step: 'constructor' }, 'step'],
-    [{ ...run(), outcomes: null }, 'outcomes'],
-    [{ ...run(), outcomes: { missing: {} } }, 'unknown step'],
-    [{ ...run(), outcomes: { first: [] } }, 'outcomes.first'],
-    [{ ...run(), outcomes: { first: { extra: 'x' } } }, 'unknown field'],
-  ])('rejects malformed or unsupported run state (%#)', (value, message) => {
+    [{ ...state(), version: 99 }, 'version'],
+    [{ ...state(), id: null }, 'run.id'],
+    [{ ...state(), id: '../escape' }, 'hex'],
+    [{ ...state(), flowName: '' }, 'flowName'],
+    [{ ...state(), task: '' }, 'task'],
+    [{ ...state(), finished: 'yes' }, 'finished'],
+    [{ ...state(), flow: null }, 'flow'],
+    [{ ...state(), step: 'constructor' }, 'step'],
+    [{ ...state(), outcomes: null }, 'outcomes'],
+    [{ ...state(), outcomes: { missing: {} } }, 'unknown step'],
+    [{ ...state(), outcomes: { first: [] } }, 'outcomes.first'],
+    [{ ...state(), outcomes: { first: { extra: 'x' } } }, 'unknown field'],
+  ])('rejects invalid state (%#)', (value, message) => {
     expect(() => validateRun(value)).toThrow(message);
   });
 
-  it.each([
-    [{}, 'required'],
-    [{ verdict: '' }, 'required'],
-    [{ verdict: 1 }, 'non-string'],
-    [{ verdict: 'fail' }, 'enum'],
-  ])('rejects invalid stored outcomes (%#)', (values, message) => {
-    const snapshot = {
-      ...run(),
-      flow: validateFlow({
+  it.each([{}, { verdict: '' }, { verdict: 1 }, { verdict: 'fail' }])(
+    'validates stored outcomes against their snapshot (%#)',
+    (outcome) => {
+      const graph = validateFlow({
         start: 'first',
         steps: {
           first: {
@@ -88,303 +113,300 @@ describe('validateRun', () => {
             outcome: { verdict: { type: 'enum', values: ['pass'], required: true } },
           },
         },
-      }),
-      outcomes: { first: values },
-    };
-    expect(() => validateRun(snapshot)).toThrow(message);
-  });
-
-  it('does not mistake inherited properties for required stored values', () => {
-    const snapshot = {
-      ...run(),
-      flow: validateFlow({
-        start: 'first',
-        steps: {
-          first: {
-            instruction: '',
-            outcome: { constructor: { type: 'string', required: true } },
-          },
-        },
-      }),
-      outcomes: { first: {} },
-    };
-    expect(() => validateRun(snapshot)).toThrow('constructor: required value is missing');
-  });
-});
-
-describe('loadRun', () => {
-  it.each([false, true])('reads a snapshot without writing (finished=%s)', (finished) => {
-    const directory = root();
-    const state = { ...run(), finished };
-    const text = JSON.stringify(state);
-    mkdirSync(join(directory, '.stepan'));
-    const path = join(directory, '.stepan/run.json');
-    writeFileSync(path, text);
-    expect(loadRun(directory)).toEqual(state);
-    expect(readFileSync(path, 'utf8')).toBe(text);
-    expect(readdirSync(join(directory, '.stepan'))).toEqual(['run.json']);
-  });
-
-  it('reports a missing run without creating its directory', () => {
-    const directory = root();
-    expect(() => loadRun(directory)).toThrow('No run found');
-    expect(existsSync(join(directory, '.stepan'))).toBe(false);
-  });
-
-  it.each([
-    ['{invalid', 'JSON'],
-    [JSON.stringify({ ...run(), version: 99 }), 'Unsupported run version'],
-    [JSON.stringify({ ...run(), step: 'missing' }), 'run.step'],
-    [JSON.stringify({ finished: true }), 'version'],
-  ])('refuses invalid state without changing its bytes (%#)', (text, message) => {
-    const directory = root();
-    mkdirSync(join(directory, '.stepan'));
-    const path = join(directory, '.stepan/run.json');
-    writeFileSync(path, text);
-    expect(() => loadRun(directory)).toThrow(message);
-    expect(readFileSync(path, 'utf8')).toBe(text);
-    expect(readdirSync(join(directory, '.stepan'))).toEqual(['run.json']);
-  });
-
-  it('reports an unreadable run path without changing it', () => {
-    const directory = root();
-    const path = join(directory, '.stepan/run.json');
-    mkdirSync(path, { recursive: true });
-    expect(() => loadRun(directory)).toThrow('Cannot read run');
-    expect(readdirSync(path)).toEqual([]);
-    expect(readdirSync(join(directory, '.stepan'))).toEqual(['run.json']);
-  });
-});
-
-describe('saveStart', () => {
-  it('creates a snapshot and refuses a live run without changing bytes', () => {
-    const directory = root();
-    expect(saveStart(directory, flow, 'TASK-1')).toEqual(run());
-    const path = join(directory, '.stepan/run.json');
-    const before = readFileSync(path, 'utf8');
-    expect(() => saveStart(directory, flow, 'TASK-2')).toThrow('already live');
-    expect(readFileSync(path, 'utf8')).toBe(before);
-    expect(existsSync(join(directory, '.stepan/start.lock'))).toBe(false);
-  });
-
-  it('replaces a finished run', () => {
-    const directory = root();
-    mkdirSync(join(directory, '.stepan'));
-    writeFileSync(
-      join(directory, '.stepan/run.json'),
-      JSON.stringify({ ...run(), finished: true }),
-    );
-    expect(saveStart(directory, flow, 'TASK-2').task).toBe('TASK-2');
-  });
-
-  it.each([
-    '{invalid',
-    JSON.stringify({ ...run(), version: 99 }),
-    JSON.stringify({ finished: true }),
-  ])('does not overwrite an unreadable run (%#)', (text) => {
-    const directory = root();
-    mkdirSync(join(directory, '.stepan'));
-    const path = join(directory, '.stepan/run.json');
-    writeFileSync(path, text);
-    expect(() => saveStart(directory, flow, 'TASK-2')).toThrow();
-    expect(readFileSync(path, 'utf8')).toBe(text);
-    expect(existsSync(join(directory, '.stepan/start.lock'))).toBe(false);
-  });
-
-  it('preserves an unreadable run path and releases the lock', () => {
-    const directory = root();
-    mkdirSync(join(directory, '.stepan/run.json'), { recursive: true });
-    expect(() => saveStart(directory, flow, 'TASK-2')).toThrow();
-    expect(existsSync(join(directory, '.stepan/run.json'))).toBe(true);
-    expect(existsSync(join(directory, '.stepan/start.lock'))).toBe(false);
-  });
-
-  it.each([false, true])(
-    'holds the lock during initial creation or replacement (finished=%s)',
-    (finished) => {
-      const directory = root();
-      if (finished) {
-        mkdirSync(join(directory, '.stepan'));
-        writeFileSync(
-          join(directory, '.stepan/run.json'),
-          JSON.stringify({ ...run(), finished: true }),
-        );
-      }
-      let called = false;
-      const reentrant: Flow = {
-        start: 'first',
-        steps: {
-          first: {
-            get instruction() {
-              called = true;
-              expect(() => saveStart(directory, flow, 'racing start')).toThrow('Another command');
-              expect(() => saveNext(directory, 'first', {})).toThrow('Another command');
-              return 'Instruction.';
-            },
-            outcome: {},
-            transitions: [],
-          },
-        },
-      };
-      saveStart(directory, reentrant, 'winner');
-      expect(called).toBe(true);
-      expect(
-        validateRun(JSON.parse(readFileSync(join(directory, '.stepan/run.json'), 'utf8'))).task,
-      ).toBe('winner');
+      });
+      expect(() =>
+        validateRun({ ...state(), flow: graph, outcomes: { first: outcome } }),
+      ).toThrow();
     },
   );
 
-  it('does not remove another invocation’s lock', () => {
-    const directory = root();
-    mkdirSync(join(directory, '.stepan'));
-    const lock = join(directory, '.stepan/start.lock');
-    writeFileSync(lock, 'busy');
-    expect(() => saveStart(directory, flow, 'TASK-1')).toThrow('Another command');
-    expect(readFileSync(lock, 'utf8')).toBe('busy');
+  it('does not treat inherited values as stored outcome fields', () => {
+    const graph = validateFlow({
+      start: 'first',
+      steps: {
+        first: { instruction: '', outcome: { constructor: { type: 'string', required: true } } },
+      },
+    });
+    expect(() => validateRun({ ...state(), flow: graph, outcomes: { first: {} } })).toThrow(
+      'constructor: required',
+    );
   });
 });
 
-describe('saveNext', () => {
-  const graph = validateFlow({
-    start: 'first',
-    steps: {
-      first: {
-        instruction: 'First.',
-        outcome: { note: { type: 'string' } },
-        transitions: [{ to: 'last' }],
-      },
-      last: { instruction: 'Last.' },
+describe('addressed storage', () => {
+  it.each(['', '../escape', '..\\escape', ID.toUpperCase(), 'a7c93f2', 'a7c93f2bg', 'g7c93f2b'])(
+    'rejects unsafe or noncanonical ID %s',
+    (id) => {
+      const directory = root();
+      expect(() => {
+        validateRunId(id);
+      }).toThrow('hex');
+      expect(() => loadRun(directory, id)).toThrow('hex');
+      expect(() => updateRun(directory, id, (run) => run)).toThrow('hex');
+      expect(() => {
+        abortRun(directory, id);
+      }).toThrow('hex');
+      expect(readdirSync(directory)).toEqual([]);
     },
+  );
+
+  it('accepts all valid lowercase hex IDs, including zero', () => {
+    expect(() => {
+      validateRunId('00000000');
+    }).not.toThrow();
+    expect(() => {
+      validateRunId('abcdef12');
+    }).not.toThrow();
   });
 
-  it('saves a transition and completion as validated state and releases the lock', () => {
+  it.each([false, true])('reads without writing (finished=%s)', (finished) => {
     const directory = root();
-    saveStart(directory, graph, 'TASK-1');
-    const next = saveNext(directory, 'first', { note: 'value' });
-    expect(next).toMatchObject({
-      step: 'last',
-      finished: false,
-      outcomes: { first: { note: 'value' } },
-    });
-    expect(loadRun(directory)).toEqual(next);
-    expect(saveNext(directory, 'last', {})).toMatchObject({
-      finished: true,
-      outcomes: { last: {} },
-    });
-    const path = join(directory, '.stepan/run.json');
-    const finished = readFileSync(path, 'utf8');
-    expect(() => saveNext(directory, 'last', {})).toThrow('Run is finished.');
-    expect(readFileSync(path, 'utf8')).toBe(finished);
-    expect(fs.readdirSync(join(directory, '.stepan'))).toEqual(['run.json']);
+    const text = JSON.stringify({ ...state(), finished });
+    put(directory, text);
+    expect(loadRun(directory, ID)).toEqual({ ...state(), finished });
+    expect(readFileSync(path(directory), 'utf8')).toBe(text);
+    expect(readdirSync(join(directory, '.stepan/runs'))).toEqual([`${ID}.json`]);
   });
 
-  it('rereads the current state after acquiring the lock', () => {
+  it('creates independent files and preserves finished runs', () => {
     const directory = root();
-    const old = saveStart(directory, graph, 'TASK-1');
-    expect(loadRun(directory).step).toBe('first');
-    const text = JSON.stringify({ ...old, step: 'last' });
-    const open = fs.openSync;
-    vi.spyOn(fs, 'openSync').mockImplementation((...args: Parameters<typeof fs.openSync>) => {
-      const descriptor = open(...args);
-      if (args[0] === join(directory, '.stepan/start.lock')) {
-        expect(existsSync(join(directory, '.stepan/start.lock'))).toBe(true);
-        writeFileSync(join(directory, '.stepan/run.json'), text);
-      }
-      return descriptor;
-    });
-    expect(() => saveNext(directory, 'first', {})).toThrow('not current');
-    expect(readFileSync(join(directory, '.stepan/run.json'), 'utf8')).toBe(text);
-    expect(existsSync(join(directory, '.stepan/start.lock'))).toBe(false);
+    put(directory, JSON.stringify({ ...state(), finished: true }));
+    const before = readFileSync(path(directory), 'utf8');
+    const one = saveStart(directory, flow, 'feature', 'TASK-1');
+    const two = saveStart(directory, flow, 'feature', 'TASK-1');
+    expect(one.id).not.toBe(two.id);
+    expect(loadRun(directory, one.id)).toEqual(one);
+    expect(readFileSync(path(directory), 'utf8')).toBe(before);
+    expect(listRuns(directory)).toHaveLength(2);
+    expect(listRuns(directory, true)).toHaveLength(3);
   });
 
-  it('blocks both writers while applying the outcome', () => {
+  it('never overwrites an ID collision', () => {
     const directory = root();
-    saveStart(directory, graph, 'TASK-1');
-    let called = false;
-    const outcome = {
-      get note() {
-        called = true;
-        expect(() => saveStart(directory, graph, 'racing start')).toThrow('Another command');
-        expect(() => saveNext(directory, 'first', {})).toThrow('Another command');
-        return 'winner';
+    put(directory);
+    const before = readFileSync(path(directory), 'utf8');
+    vi.spyOn(crypto, 'randomBytes').mockImplementation(() => Buffer.from(ID, 'hex'));
+    expect(() => saveStart(directory, flow, 'feature', 'new task')).toThrow('after 10 attempts');
+    expect(readFileSync(path(directory), 'utf8')).toBe(before);
+  });
+
+  it('retries a collision and creates a different run without overwriting the first', () => {
+    const directory = root();
+    put(directory);
+    const before = readFileSync(path(directory), 'utf8');
+    vi.spyOn(crypto, 'randomBytes')
+      .mockImplementationOnce(() => Buffer.from(ID, 'hex'))
+      .mockImplementationOnce(() => Buffer.from(OTHER, 'hex'));
+    expect(saveStart(directory, flow, 'feature', 'new task').id).toBe(OTHER);
+    expect(readFileSync(path(directory), 'utf8')).toBe(before);
+    expect(loadRun(directory, OTHER).task).toBe('new task');
+  });
+
+  it('reports missing state without creating directories', () => {
+    const directory = root();
+    for (const action of [
+      () => loadRun(directory, ID),
+      () => updateRun(directory, ID, (run) => run),
+      () => {
+        abortRun(directory, ID);
       },
-    };
-    saveNext(directory, 'first', outcome);
-    expect(called).toBe(true);
-    expect(loadRun(directory).outcomes.first).toEqual({ note: 'winner' });
-  });
-
-  it.each([
-    { step: 'other', outcome: {}, message: 'not current' },
-    { step: 'first', outcome: { extra: 'x' }, message: 'unknown field' },
-  ])('preserves bytes and releases its lock on rejection (%#)', ({ step, outcome, message }) => {
-    const directory = root();
-    saveStart(directory, graph, 'TASK-1');
-    const path = join(directory, '.stepan/run.json');
-    const before = readFileSync(path, 'utf8');
-    expect(() => saveNext(directory, step, outcome)).toThrow(message);
-    expect(readFileSync(path, 'utf8')).toBe(before);
-    expect(existsSync(join(directory, '.stepan/start.lock'))).toBe(false);
+    ]) {
+      expect(action).toThrow('No run found');
+      expect(existsSync(join(directory, '.stepan'))).toBe(false);
+    }
+    expect(listRuns(directory)).toEqual([]);
+    mkdirSync(join(directory, '.stepan/runs'), { recursive: true });
+    expect(() => updateRun(directory, ID, (run) => run)).toThrow('No run found');
+    expect(() => {
+      abortRun(directory, ID);
+    }).toThrow('No run found');
+    expect(readdirSync(join(directory, '.stepan/runs'))).toEqual([]);
   });
 
   it.each([
     '{invalid',
-    JSON.stringify({ ...run(), version: 99 }),
-    JSON.stringify({ finished: true }),
-  ])('does not overwrite invalid stored state (%#)', (text) => {
+    JSON.stringify({ ...state(), version: 99 }),
+    JSON.stringify({ ...state(), step: 'missing' }),
+    JSON.stringify({ ...state(), id: OTHER }),
+  ])('refuses damaged state without changing it (%#)', (text) => {
+    const directory = root();
+    put(directory, text);
+    expect(() => loadRun(directory, ID)).toThrow(path(directory));
+    expect(() => updateRun(directory, ID, (run) => run)).toThrow(path(directory));
+    expect(() => listRuns(directory)).toThrow(path(directory));
+    expect(readFileSync(path(directory), 'utf8')).toBe(text);
+    expect(existsSync(lock(directory))).toBe(false);
+    abortRun(directory, ID);
+    expect(existsSync(path(directory))).toBe(false);
+  });
+
+  it('reports an unreadable run path and preserves it', () => {
+    const directory = root();
+    mkdirSync(path(directory), { recursive: true });
+    expect(() => loadRun(directory, ID)).toThrow(path(directory));
+    expect(() => updateRun(directory, ID, (run) => run)).toThrow(path(directory));
+    expect(() => {
+      abortRun(directory, ID);
+    }).toThrow();
+    expect(readdirSync(path(directory))).toEqual([]);
+    expect(existsSync(lock(directory))).toBe(false);
+  });
+
+  it('lists in ID order, filters finished runs and ignores locks', () => {
+    const directory = root();
+    put(directory);
+    writeFileSync(
+      path(directory, OTHER),
+      JSON.stringify({ ...state(), id: OTHER, finished: true }),
+    );
+    writeFileSync(lock(directory), 'busy');
+    expect(listRuns(directory).map((run) => run.id)).toEqual([ID]);
+    expect(listRuns(directory, true).map((run) => run.id)).toEqual([ID, OTHER]);
+  });
+
+  it('reports an invalid run filename without hiding or changing files', () => {
+    const directory = root();
+    put(directory);
+    const before = loadBytes(directory);
+    const invalid = join(directory, '.stepan/runs/invalid.json');
+    writeFileSync(invalid, 'keep invalid file');
+    expect(() => listRuns(directory)).toThrow(`${invalid}: invalid run filename`);
+    expect(readFileSync(invalid, 'utf8')).toBe('keep invalid file');
+    expect(loadBytes(directory)).toBe(before);
+  });
+
+  it('reports a non-directory run location instead of returning an empty list', () => {
     const directory = root();
     mkdirSync(join(directory, '.stepan'));
-    const path = join(directory, '.stepan/run.json');
-    writeFileSync(path, text);
-    expect(() => saveNext(directory, 'first', {})).toThrow();
-    expect(readFileSync(path, 'utf8')).toBe(text);
-    expect(existsSync(join(directory, '.stepan/start.lock'))).toBe(false);
+    const runs = join(directory, '.stepan/runs');
+    writeFileSync(runs, 'not a directory');
+    expect(() => listRuns(directory)).toThrow();
+    expect(readFileSync(runs, 'utf8')).toBe('not a directory');
   });
 
-  it('refuses missing state without creating its directory', () => {
+  it('reports a non-collision creation failure without retrying or changing existing runs', () => {
     const directory = root();
-    expect(() => saveNext(directory, 'first', {})).toThrow();
-    expect(existsSync(join(directory, '.stepan'))).toBe(false);
-    mkdirSync(join(directory, '.stepan'));
-    expect(() => saveNext(directory, 'first', {})).toThrow('No run found');
-    expect(fs.readdirSync(join(directory, '.stepan'))).toEqual([]);
+    put(directory);
+    const before = loadBytes(directory);
+    const write = vi.spyOn(fs, 'writeFileSync').mockImplementation(() => {
+      throw Object.assign(new Error('Write denied'), { code: 'EACCES' });
+    });
+    expect(() => saveStart(directory, flow, 'feature', 'new task')).toThrow('Write denied');
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(loadBytes(directory)).toBe(before);
+    expect(readdirSync(join(directory, '.stepan/runs'))).toEqual([`${ID}.json`]);
   });
 
-  it('refuses an unreadable run path and releases its lock', () => {
+  it.each([false, true])('aborts a selected run (finished=%s)', (finished) => {
     const directory = root();
-    const path = join(directory, '.stepan/run.json');
-    mkdirSync(path, { recursive: true });
-    expect(() => saveNext(directory, 'first', {})).toThrow('Cannot read run');
-    expect(fs.readdirSync(path)).toEqual([]);
-    expect(existsSync(join(directory, '.stepan/start.lock'))).toBe(false);
+    put(directory, JSON.stringify({ ...state(), finished }));
+    const other = saveStart(directory, flow, 'feature', 'other');
+    const before = readFileSync(path(directory, other.id), 'utf8');
+    abortRun(directory, ID);
+    expect(existsSync(path(directory))).toBe(false);
+    expect(readFileSync(path(directory, other.id), 'utf8')).toBe(before);
+    expect(existsSync(lock(directory))).toBe(false);
+  });
+});
+
+function loadBytes(directory: string): string {
+  return readFileSync(path(directory), 'utf8');
+}
+
+describe('locked updates', () => {
+  it('saves transitions and completion, releasing the lock on failure too', () => {
+    const directory = root();
+    put(directory);
+    expect(updateRun(directory, ID, (run) => advanceRun(run, { note: 'value' }))).toMatchObject({
+      step: 'last',
+      outcomes: { first: { note: 'value' } },
+    });
+    const finished = updateRun(directory, ID, (run) => advanceRun(run, {}));
+    expect(finished.finished).toBe(true);
+    const before = loadBytes(directory);
+    expect(() => updateRun(directory, ID, (run) => advanceRun(run, {}))).toThrow('is finished');
+    expect(loadBytes(directory)).toBe(before);
+    expect(existsSync(lock(directory))).toBe(false);
   });
 
-  it('does not change a busy lock or run', () => {
+  it('reads and parses the actual current state after acquiring its lock', () => {
     const directory = root();
-    saveStart(directory, graph, 'TASK-1');
-    const path = join(directory, '.stepan/run.json');
-    const before = readFileSync(path, 'utf8');
-    const lock = join(directory, '.stepan/start.lock');
-    writeFileSync(lock, 'busy');
-    expect(() => saveNext(directory, 'first', {})).toThrow('Another command');
-    expect(readFileSync(path, 'utf8')).toBe(before);
-    expect(readFileSync(lock, 'utf8')).toBe('busy');
+    put(directory);
+    const open = fs.openSync;
+    vi.spyOn(fs, 'openSync').mockImplementation((...args: Parameters<typeof fs.openSync>) => {
+      const descriptor = open(...args);
+      if (args[0] === lock(directory)) put(directory, JSON.stringify({ ...state(), step: 'last' }));
+      return descriptor;
+    });
+    updateRun(directory, ID, (run) => {
+      expect(run.step).toBe('last');
+      expect(existsSync(lock(directory))).toBe(true);
+      return advanceRun(run, {});
+    });
+    expect(loadRun(directory, ID).finished).toBe(true);
   });
 
-  it('releases its lock on a write failure without claiming success', () => {
+  it('blocks competing writers for the same run but not other runs or starts', () => {
     const directory = root();
-    saveStart(directory, graph, 'TASK-1');
-    const path = join(directory, '.stepan/run.json');
-    const before = readFileSync(path, 'utf8');
+    put(directory);
+    const other = saveStart(directory, flow, 'feature', 'other');
+    updateRun(directory, ID, (run) => {
+      expect(() => updateRun(directory, ID, (value) => value)).toThrow('Another command');
+      expect(() => {
+        abortRun(directory, ID);
+      }).toThrow('Another command');
+      expect(existsSync(lock(directory))).toBe(true);
+      updateRun(directory, other.id, (value) => advanceRun(value, {}));
+      abortRun(directory, other.id);
+      expect(saveStart(directory, flow, 'feature', 'new').id).not.toBe(ID);
+      return advanceRun(run, {});
+    });
+    expect(existsSync(lock(directory))).toBe(false);
+  });
+
+  it('preserves bytes and releases its lock on callback errors or identity changes', () => {
+    const directory = root();
+    put(directory);
+    for (const update of [
+      (run: RunState) => advanceRun(run, { extra: 'x' }),
+      (run: RunState) => ({ ...run, id: OTHER }),
+      () => {
+        throw new Error('Usage error');
+      },
+    ]) {
+      const before = loadBytes(directory);
+      expect(() => updateRun(directory, ID, update)).toThrow();
+      expect(loadBytes(directory)).toBe(before);
+      expect(existsSync(lock(directory))).toBe(false);
+    }
+  });
+
+  it('never removes another writer’s lock', () => {
+    const directory = root();
+    put(directory);
+    const before = loadBytes(directory);
+    writeFileSync(lock(directory), 'busy');
+    expect(() => updateRun(directory, ID, (run) => run)).toThrow('Another command');
+    expect(() => {
+      abortRun(directory, ID);
+    }).toThrow('Another command');
+    expect(readFileSync(lock(directory), 'utf8')).toBe('busy');
+    expect(loadBytes(directory)).toBe(before);
+  });
+
+  it('releases the lock on a write failure without claiming success', () => {
+    const directory = root();
+    put(directory);
+    const before = loadBytes(directory);
     const write = fs.writeFileSync;
     vi.spyOn(fs, 'writeFileSync').mockImplementation(
       (...args: Parameters<typeof fs.writeFileSync>) => {
-        if (args[0] === path) throw new Error('Write failed');
+        if (args[0] === path(directory)) throw new Error('Write failed');
         write(...args);
       },
     );
-    expect(() => saveNext(directory, 'first', {})).toThrow('Write failed');
-    expect(readFileSync(path, 'utf8')).toBe(before);
-    expect(existsSync(join(directory, '.stepan/start.lock'))).toBe(false);
+    expect(() => updateRun(directory, ID, (run) => advanceRun(run, {}))).toThrow('Write failed');
+    expect(loadBytes(directory)).toBe(before);
+    expect(existsSync(lock(directory))).toBe(false);
   });
 });

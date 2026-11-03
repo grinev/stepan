@@ -1,9 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { RunState } from '../../src/run.js';
-import { createCli, runCli, type CliSandbox } from './run-cli.js';
+import { createCli, runCli, runPath, startCli, type RunningCli } from './run-cli.js';
 
+const ID = 'a7c93f2b';
 const FLOW = `start: plan
 steps:
   plan:
@@ -28,13 +29,14 @@ steps:
     instruction: finish.md
 `;
 const PLAN =
-  'Plan STP-4: задача.\n\nstepan next plan --plan "<text>" [--note "<text>"] [--reason <small|large>]\n';
+  'Run: RUN-ID\nStep: plan\n\nPlan STP-8: задача.\n\nstepan next RUN-ID --plan "<text>" [--note "<text>"] [--reason <small|large>]\n';
 function reviewOutput(plan: string): string {
-  return `Review ${plan}.\n\nstepan next review --verdict <pass|fail|hold> [--findings "<text>"]\n`;
+  return `Run: RUN-ID\nStep: review\n\nReview ${plan}.\n\nstepan next RUN-ID --verdict <pass|fail|hold> [--findings "<text>"]\n`;
 }
-const FINISH = 'Finish.\n\nstepan next finish\n';
+const FINISH = 'Run: RUN-ID\nStep: finish\n\nFinish.\n\nstepan next RUN-ID\n';
+const FINISHED = 'Run RUN-ID is finished.\n';
 
-function fixture(layout: 'installed' | 'sources' = 'installed', flow = FLOW): CliSandbox {
+function fixture(layout: 'installed' | 'sources' = 'installed', flow = FLOW): RunningCli {
   const cli = createCli(layout);
   const directory = join(cli.cwd, 'flows/feature');
   mkdirSync(directory, { recursive: true });
@@ -42,33 +44,25 @@ function fixture(layout: 'installed' | 'sources' = 'installed', flow = FLOW): Cl
   writeFileSync(join(directory, 'plan.md'), 'Plan {{task}}.\n');
   writeFileSync(join(directory, 'review.md'), 'Review {{steps.plan.outcome.plan}}.\n');
   writeFileSync(join(directory, 'finish.md'), 'Finish.');
-  const result = runCli(['start', 'feature', 'STP-4: задача'], cli);
-  expect(result.code).toBe(0);
-  expect(result.stderr).toBe('');
-  return cli;
+  return startCli(cli, 'STP-8: задача');
 }
-
-function readRun(cli: CliSandbox): RunState {
+function readRun(cli: RunningCli): RunState {
   return JSON.parse(readFileSync(cli.runPath, 'utf8')) as RunState;
 }
-
-function success(cli: CliSandbox, args: string[], stdout: string): void {
+function success(cli: RunningCli, args: string[], stdout: string): void {
   const result = runCli(args, cli);
-  expect(result.code).toBe(0);
-  expect(result.stdout).toBe(stdout);
-  expect(result.stderr).toBe('');
-  expect(readdirSync(dirname(cli.runPath))).toEqual(['run.json']);
+  expect(result).toMatchObject({ code: 0, stderr: '' });
+  expect(result.stdout.replaceAll(cli.id, 'RUN-ID')).toBe(stdout);
+  expect(readdirSync(cli.runsDirectory)).toEqual([`${cli.id}.json`]);
 }
-
-function refusal(cli: CliSandbox, args: string[], code: number, message: string): void {
+function refusal(cli: RunningCli, args: string[], code: number, message: string): void {
   const before = readFileSync(cli.runPath, 'utf8');
   const result = runCli(args, cli);
-  expect(result.code).toBe(code);
-  expect(result.stdout).toBe('');
+  expect(result).toMatchObject({ code, stdout: '' });
   expect(result.stderr).toContain(message);
   expect(result.stderr).not.toContain('\n    at ');
   expect(readFileSync(cli.runPath, 'utf8')).toBe(before);
-  expect(existsSync(join(dirname(cli.runPath), 'start.lock'))).toBe(false);
+  expect(existsSync(join(cli.runsDirectory, `${cli.id}.lock`))).toBe(false);
 }
 
 describe('stepan next', () => {
@@ -77,10 +71,10 @@ describe('stepan next', () => {
     (layout) => {
       const cli = fixture(layout);
       const snapshot = readRun(cli).flow;
-      success(cli, ['current'], PLAN);
+      success(cli, ['current', cli.id], PLAN);
       success(
         cli,
-        ['next', 'plan', '--plan', 'первый план', '--note', 'remove', '--reason', 'small'],
+        ['next', cli.id, '--plan', 'первый план', '--note', 'remove', '--reason', 'small'],
         reviewOutput('первый план'),
       );
       expect(readRun(cli)).toMatchObject({
@@ -88,30 +82,30 @@ describe('stepan next', () => {
         finished: false,
         outcomes: { plan: { plan: 'первый план', note: 'remove', reason: 'small' } },
       });
-      success(cli, ['current'], reviewOutput('первый план'));
-      success(cli, ['next', 'review', '--verdict', 'fail', '--findings', 'revise'], PLAN);
-      success(cli, ['next', 'plan', '--plan=новый план'], reviewOutput('новый план'));
+      success(cli, ['current', cli.id], reviewOutput('первый план'));
+      success(cli, ['next', cli.id, '--verdict=fail', '--findings=revise'], PLAN);
+      success(cli, ['next', cli.id, '--plan=новый план'], reviewOutput('новый план'));
       expect(readRun(cli).outcomes).toEqual({
         plan: { plan: 'новый план' },
         review: { verdict: 'fail', findings: 'revise' },
       });
-      success(cli, ['next', 'review', '--verdict=pass'], FINISH);
+      success(cli, ['next', cli.id, '--verdict=pass'], FINISH);
       expect(readRun(cli)).toMatchObject({ step: 'finish', finished: false });
-      success(cli, ['current'], FINISH);
-      success(cli, ['next', 'finish'], 'Run is finished.\n');
-      const finished = readRun(cli);
-      expect(finished).toEqual({
+      success(cli, ['current', cli.id], FINISH);
+      success(cli, ['next', cli.id], FINISHED);
+      expect(readRun(cli)).toEqual({
         version: 1,
-        task: 'STP-4: задача',
+        id: cli.id,
+        flowName: 'feature',
+        task: 'STP-8: задача',
         step: 'finish',
         finished: true,
         flow: snapshot,
         outcomes: { plan: { plan: 'новый план' }, review: { verdict: 'pass' }, finish: {} },
       });
-      success(cli, ['current'], 'Run is finished.\n');
-      refusal(cli, ['next', 'finish'], 1, 'Run is finished.');
-      refusal(cli, ['next', 'finish', '--unknown'], 1, 'Run is finished.');
-
+      success(cli, ['current', cli.id], FINISHED);
+      refusal(cli, ['next', cli.id], 1, 'is finished.');
+      refusal(cli, ['next', cli.id, '--unknown'], 1, 'is finished.');
       const other =
         layout === 'sources' ? join(cli.cwd, '.stepan') : join(cli.packageRoot, '.dev-data');
       expect(existsSync(other)).toBe(false);
@@ -121,41 +115,40 @@ describe('stepan next', () => {
   );
 
   it.each([
-    { args: ['other', '--unknown'], code: 1, message: "current: 'plan'" },
-    { args: ['plan'], code: 1, message: 'plan: required' },
-    { args: ['plan', '--plan='], code: 1, message: 'plan: required' },
-    {
-      args: ['plan', '--plan', 'value', '--reason', 'other'],
-      code: 1,
-      message: 'reason: invalid enum',
+    { args: ['plan', '--plan=value'], code: 2, message: 'argument' },
+    { args: [], code: 1, message: 'plan: required' },
+    { args: ['--plan='], code: 1, message: 'plan: required' },
+    { args: ['--plan=value', '--reason=other'], code: 1, message: 'reason: invalid enum' },
+    { args: ['--plan=value', '--unknown=x'], code: 2, message: 'unknown' },
+    { args: ['--plan=value', '--plan=again'], code: 2, message: 'Repeated option' },
+    { args: ['--plan'], code: 2, message: 'argument' },
+    { args: ['--plan=value', 'extra'], code: 2, message: 'argument' },
+    { args: ['-p', 'value'], code: 2, message: 'option' },
+    { args: ['--help'], code: 2, message: 'option' },
+  ])(
+    'refuses invalid outcome or an extra step without changing state (%#)',
+    ({ args, code, message }) => {
+      const cli = fixture();
+      refusal(cli, ['next', cli.id, ...args], code, message);
+      expect(readRun(cli).outcomes).toEqual({});
+      success(cli, ['current', cli.id], PLAN);
     },
-    { args: ['plan', '--plan', 'value', '--unknown', 'x'], code: 2, message: 'unknown' },
-    { args: ['plan', '--plan=value', '--plan', 'again'], code: 2, message: 'Repeated option' },
-    { args: ['plan', '--plan'], code: 2, message: 'argument' },
-    { args: ['plan', '--plan', 'value', 'extra'], code: 2, message: 'argument' },
-    { args: ['plan', '-p', 'value'], code: 2, message: 'option' },
-    { args: ['plan', '--help'], code: 2, message: 'option' },
-  ])('refuses invalid step or outcome without changing the run (%#)', ({ args, code, message }) => {
-    const cli = fixture();
-    refusal(cli, ['next', ...args], code, message);
-    expect(readRun(cli).outcomes).toEqual({});
-    success(cli, ['current'], PLAN);
-  });
+  );
 
   it.each([
     { args: [], message: 'verdict: required' },
     { args: ['--verdict='], message: 'verdict: required' },
-    { args: ['--verdict', 'other'], message: 'verdict: invalid enum' },
-    { args: ['--verdict', 'hold'], message: 'no matching transition' },
-  ])('refuses a missing or invalid enum or unmatched transition (%#)', ({ args, message }) => {
+    { args: ['--verdict=other'], message: 'verdict: invalid enum' },
+    { args: ['--verdict=hold'], message: 'no matching transition' },
+  ])('refuses invalid enum or unmatched transition (%#)', ({ args, message }) => {
     const cli = fixture();
-    success(cli, ['next', 'plan', '--plan', 'value'], reviewOutput('value'));
-    refusal(cli, ['next', 'review', ...args], 1, message);
+    success(cli, ['next', cli.id, '--plan=value'], reviewOutput('value'));
+    refusal(cli, ['next', cli.id, ...args], 1, message);
     expect(readRun(cli).outcomes).toEqual({ plan: { plan: 'value' } });
-    success(cli, ['current'], reviewOutput('value'));
+    success(cli, ['current', cli.id], reviewOutput('value'));
   });
 
-  it('uses the original schema, transitions and instructions after editing and removing flow files', () => {
+  it('uses the snapshot after editing and removing flow files', () => {
     const cli = fixture();
     const directory = join(cli.cwd, 'flows/feature');
     writeFileSync(
@@ -163,14 +156,16 @@ describe('stepan next', () => {
       FLOW.replaceAll('plan', 'changed').replace('to: review', 'to: finish'),
     );
     writeFileSync(join(directory, 'review.md'), 'Changed instruction.');
-    success(cli, ['next', 'plan', '--plan', 'saved schema'], reviewOutput('saved schema'));
+    success(cli, ['next', cli.id, '--plan=saved schema'], reviewOutput('saved schema'));
     rmSync(join(cli.cwd, 'flows'), { recursive: true });
-    success(cli, ['next', 'review', '--verdict=fail'], PLAN);
-    success(cli, ['current'], PLAN);
+    success(cli, ['next', cli.id, '--verdict=fail'], PLAN);
+    success(cli, ['current', cli.id], PLAN);
   });
 
-  it('tries a conditional before the default and accepts a missing optional field', () => {
-    const flow = `start: plan
+  it('tries a conditional before the default and replaces optional fields', () => {
+    const cli = fixture(
+      'installed',
+      `start: plan
 steps:
   plan:
     instruction: plan.md
@@ -182,36 +177,30 @@ steps:
       - to: finish
   finish:
     instruction: finish.md
-`;
-    const cli = fixture('installed', flow);
+`,
+    );
     success(
       cli,
-      ['next', 'plan', '--note='],
-      'Plan STP-4: задача.\n\nstepan next plan [--note "<text>"]\n',
+      ['next', cli.id, '--note='],
+      'Run: RUN-ID\nStep: plan\n\nPlan STP-8: задача.\n\nstepan next RUN-ID [--note "<text>"]\n',
     );
     expect(readRun(cli).outcomes.plan).toEqual({ note: '' });
-    success(cli, ['next', 'plan'], FINISH);
+    success(cli, ['next', cli.id], FINISH);
     expect(readRun(cli).outcomes.plan).toEqual({});
   });
 
   it('requires the final outcome before marking the run finished', () => {
     const cli = fixture(
       'installed',
-      `start: finish
-steps:
-  finish:
-    instruction: finish.md
-    outcome:
-      summary: {type: string, required: true}
-`,
+      'start: finish\nsteps:\n  finish:\n    instruction: finish.md\n    outcome:\n      summary: {type: string, required: true}\n',
     );
-    refusal(cli, ['next', 'finish'], 1, 'summary: required');
+    refusal(cli, ['next', cli.id], 1, 'summary: required');
     expect(readRun(cli).finished).toBe(false);
-    success(cli, ['next', 'finish', '--summary', 'Done.'], 'Run is finished.\n');
+    success(cli, ['next', cli.id, '--summary=Done.'], FINISHED);
     expect(readRun(cli).outcomes.finish).toEqual({ summary: 'Done.' });
   });
 
-  it('accepts help, h, version and prototype names as outcome fields and preserves exact strings', () => {
+  it('accepts help, h, version and prototype names and preserves exact strings', () => {
     const cli = fixture(
       'installed',
       `start: plan
@@ -227,13 +216,13 @@ steps:
       x: {type: string}
 `,
     );
-    refusal(cli, ['next', 'plan', '-x', 'value'], 2, 'flag');
-    refusal(cli, ['next', 'plan', '--help'], 2, 'argument');
+    refusal(cli, ['next', cli.id, '-x', 'value'], 2, 'flag');
+    refusal(cli, ['next', cli.id, '--help'], 2, 'argument');
     success(
       cli,
       [
         'next',
-        'plan',
+        cli.id,
         '--help',
         '  ',
         '--h=',
@@ -242,7 +231,7 @@ steps:
         '--toString',
         'текст с пробелами',
       ],
-      'Run is finished.\n',
+      FINISHED,
     );
     expect(readRun(cli).outcomes.plan).toEqual({
       help: '  ',
@@ -253,81 +242,72 @@ steps:
     });
   });
 
-  it.each(['--help', '-h'])('prints standalone %s without accessing state', (flag) => {
+  it.each(['--help', '-h'])('prints standalone %s without state', (flag) => {
     const cli = createCli();
-    const help = runCli(['next', flag], cli);
-    expect(help.code).toBe(0);
-    expect(help.stderr).toBe('');
-    expect(help.stdout).toContain('Usage: stepan next');
-    expect(existsSync(dirname(cli.runPath))).toBe(false);
-    mkdirSync(dirname(cli.runPath));
-    writeFileSync(cli.runPath, '{broken');
-    expect(runCli(['next', flag], cli).stdout).toBe(help.stdout);
-    expect(readFileSync(cli.runPath, 'utf8')).toBe('{broken');
+    const result = runCli(['next', flag], cli);
+    expect(result).toMatchObject({ code: 0, stderr: '' });
+    expect(result.stdout).toContain('Usage: stepan next <run-id>');
+    expect(existsSync(cli.runsDirectory)).toBe(false);
   });
 
-  it.each([[], [''], ['--verdict', 'pass'], ['--help', 'extra'], ['-h', '--help']])(
-    'rejects malformed command arguments without creating state (%#)',
-    (...args) => {
-      const cli = createCli();
-      const result = runCli(['next', ...args], cli);
-      expect(result.code).toBe(2);
-      expect(result.stdout).toBe('');
-      expect(result.stderr).toContain('Usage: stepan next');
-      expect(existsSync(dirname(cli.runPath))).toBe(false);
-    },
-  );
+  it.each([
+    [],
+    [''],
+    ['plan'],
+    ['../outside'],
+    ['A7C93F2B'],
+    ['--verdict', 'pass'],
+    ['--help', 'extra'],
+    ['-h', '--help'],
+  ])('rejects missing or invalid IDs without creating state (%#)', (...args) => {
+    const cli = createCli();
+    const result = runCli(['next', ...args], cli);
+    expect(result).toMatchObject({ code: 2, stdout: '' });
+    expect(result.stderr).toContain('Usage: stepan next');
+    expect(existsSync(cli.runsDirectory)).toBe(false);
+  });
 
   it.each(['installed', 'sources'] as const)(
-    'reports a missing run without creating the %s state directory',
+    'reports missing state without creating the %s directory',
     (layout) => {
       const cli = createCli(layout);
-      const result = runCli(['next', 'plan', '--plan', 'value'], cli);
-      expect(result.code).toBe(1);
-      expect(result.stdout).toBe('');
+      const result = runCli(['next', ID, '--plan=value'], cli);
+      expect(result).toMatchObject({ code: 1, stdout: '' });
       expect(result.stderr).toContain('No run found');
-      expect(existsSync(dirname(cli.runPath))).toBe(false);
+      expect(existsSync(cli.runsDirectory)).toBe(false);
     },
   );
 
   it.each(['{invalid', '{"version":99}', '{"version":1,"finished":true}'])(
     'preserves unreadable or unknown-version state (%#)',
     (text) => {
-      const cli = createCli();
-      mkdirSync(dirname(cli.runPath));
+      const cli = fixture();
       writeFileSync(cli.runPath, text);
-      refusal(cli, ['next', 'plan', '--plan', 'value'], 1, 'run.json');
+      refusal(cli, ['next', cli.id, '--plan=value'], 1, cli.runPath);
     },
   );
 
-  it('does not replace an unreadable run path', () => {
+  it('preserves an unreadable run path', () => {
     const cli = createCli();
-    mkdirSync(cli.runPath, { recursive: true });
-    const result = runCli(['next', 'plan'], cli);
-    expect(result.code).toBe(1);
-    expect(result.stdout).toBe('');
-    expect(result.stderr).toContain('Cannot read run');
-    expect(readdirSync(cli.runPath)).toEqual([]);
-    expect(readdirSync(dirname(cli.runPath))).toEqual(['run.json']);
+    const path = runPath(cli, ID);
+    mkdirSync(path, { recursive: true });
+    const result = runCli(['next', ID], cli);
+    expect(result).toMatchObject({ code: 1, stdout: '' });
+    expect(result.stderr).toContain(path);
+    expect(readdirSync(path)).toEqual([]);
+    expect(readdirSync(cli.runsDirectory)).toEqual([`${ID}.json`]);
   });
 
-  it('refuses a busy shared lock without changing the run or the lock', () => {
+  it('refuses a busy per-run lock without modifying it', () => {
     const cli = fixture();
     const before = readFileSync(cli.runPath, 'utf8');
-    const lock = join(dirname(cli.runPath), 'start.lock');
+    const lock = join(cli.runsDirectory, `${cli.id}.lock`);
     writeFileSync(lock, 'busy');
-    const result = runCli(['next', 'plan', '--plan', 'value'], cli);
-    expect(result.code).toBe(1);
-    expect(result.stdout).toBe('');
+    const result = runCli(['next', cli.id, '--plan=value'], cli);
+    expect(result).toMatchObject({ code: 1, stdout: '' });
     expect(result.stderr).toContain('Another command');
     expect(result.stderr).toContain(lock);
     expect(readFileSync(cli.runPath, 'utf8')).toBe(before);
     expect(readFileSync(lock, 'utf8')).toBe('busy');
-  });
-
-  it('lists next in general help', () => {
-    const result = runCli(['--help']);
-    expect(result.code).toBe(0);
-    expect(result.stdout).toContain('next <step>');
   });
 });

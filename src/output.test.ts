@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { graphOverview, stepOutput } from './output.js';
+import { graphOverview, runsOutput, stepOutput } from './output.js';
 import { validateFlow, type Step } from './flow.js';
 import type { RunState } from './run.js';
 
-const context: Pick<RunState, 'task' | 'outcomes'> = {
+const ID = 'a7c93f2b';
+const HEADER = `Run: ${ID}\nStep: review\n\n`;
+const EXIT = `stepan next ${ID}`;
+const context: Pick<RunState, 'id' | 'task' | 'outcomes'> = {
+  id: ID,
   task: 'TASK-1',
   outcomes: { plan: { path: 'docs/plan.md', note: '', verdict: 'pass' } },
 };
@@ -45,29 +49,30 @@ describe('output', () => {
         context,
       ),
     ).toBe(
-      'Review.\n\nstepan next review --plan "<text>" --verdict <pass|fail> [--findings "<text>"] [--extra <yes>]\n',
+      `${HEADER}Review.\n\n${EXIT} --plan "<text>" --verdict <pass|fail> [--findings "<text>"] [--extra <yes>]\n`,
     );
   });
 
   it('adds a newline if needed and handles a final step without fields', () => {
     expect(
       stepOutput('finish', { instruction: '{{task}}', outcome: {}, transitions: [] }, context),
-    ).toBe('TASK-1\n\nstepan next finish\n');
+    ).toBe(`Run: ${ID}\nStep: finish\n\nTASK-1\n\n${EXIT}\n`);
   });
 
   it('substitutes repeated task and outcome references, including an enum value', () => {
     expect(
       render('{{task}}: {{steps.plan.outcome.path}}; {{task}}; {{steps.plan.outcome.verdict}}.'),
-    ).toBe('TASK-1: docs/plan.md; TASK-1; pass.\n\nstepan next review\n');
+    ).toBe(`${HEADER}TASK-1: docs/plan.md; TASK-1; pass.\n\n${EXIT}\n`);
   });
 
   it('supports step and field names with hyphens, underscores and digits', () => {
     expect(
       render('{{steps.plan-2_v3.outcome.file-4_path}}', {
+        id: ID,
         task: 'TASK-1',
         outcomes: { 'plan-2_v3': { 'file-4_path': 'saved' } },
       }),
-    ).toBe('saved\n\nstepan next review\n');
+    ).toBe(`${HEADER}saved\n\n${EXIT}\n`);
   });
 
   it.each([
@@ -83,48 +88,57 @@ describe('output', () => {
     'plain text',
     '',
   ])('preserves unresolved or unsupported text (%#)', (text) => {
-    expect(render(text)).toBe(`${text}\n\nstepan next review\n`);
+    expect(render(text)).toBe(`${HEADER}${text}\n\n${EXIT}\n`);
   });
 
   it('leaves unvisited outcomes unresolved', () => {
-    expect(render('{{steps.plan.outcome.path}}', { task: 'TASK-1', outcomes: {} })).toBe(
-      '{{steps.plan.outcome.path}}\n\nstepan next review\n',
+    expect(render('{{steps.plan.outcome.path}}', { id: ID, task: 'TASK-1', outcomes: {} })).toBe(
+      `${HEADER}{{steps.plan.outcome.path}}\n\n${EXIT}\n`,
     );
   });
 
   it('distinguishes an empty stored string from a missing value', () => {
     expect(render('Before {{steps.plan.outcome.note}}after')).toBe(
-      'Before after\n\nstepan next review\n',
+      `${HEADER}Before after\n\n${EXIT}\n`,
     );
   });
 
   it('resolves own prototype-named properties but leaves inherited properties unresolved', () => {
     const text =
       '{{steps.constructor.outcome.toString}} / {{steps.plan.outcome.constructor}} / {{steps.toString.outcome.path}}';
-    expect(render(text)).toBe(`${text}\n\nstepan next review\n`);
+    expect(render(text)).toBe(`${HEADER}${text}\n\n${EXIT}\n`);
     expect(
       render(text, {
+        id: ID,
         task: 'TASK-1',
         outcomes: {
           constructor: { toString: 'own value' },
           plan: { constructor: 'own field' },
         },
       }),
-    ).toBe('own value / own field / {{steps.toString.outcome.path}}\n\nstepan next review\n');
+    ).toBe(`${HEADER}own value / own field / {{steps.toString.outcome.path}}\n\n${EXIT}\n`);
   });
 
   it('inserts task and outcome text once and preserves literal replacement metacharacters', () => {
     const task = '{{steps.plan.outcome.path}} $& $1 $$ \\ "задача"';
     const path = '{{task}} $& $1 $$ \\ "план"\nsecond line';
     expect(
-      render('{{task}}\n{{steps.plan.outcome.path}}', { task, outcomes: { plan: { path } } }),
-    ).toBe(`${task}\n${path}\n\nstepan next review\n`);
+      render('{{task}}\n{{steps.plan.outcome.path}}', {
+        id: ID,
+        task,
+        outcomes: { plan: { path } },
+      }),
+    ).toBe(`${HEADER}${task}\n${path}\n\n${EXIT}\n`);
   });
 
   it.each(['value', 'value\n', ''])('formats the newline after substitution (%#)', (path) => {
     expect(
-      render('{{steps.plan.outcome.path}}', { task: 'TASK-1', outcomes: { plan: { path } } }),
-    ).toBe(`${path}${path.endsWith('\n') ? '' : '\n'}\nstepan next review\n`);
+      render('{{steps.plan.outcome.path}}', {
+        id: ID,
+        task: 'TASK-1',
+        outcomes: { plan: { path } },
+      }),
+    ).toBe(`${HEADER}${path}${path.endsWith('\n') ? '' : '\n'}\n${EXIT}\n`);
   });
 
   it('keeps the snapshot and context unchanged and substitutes only the instruction', () => {
@@ -135,8 +149,29 @@ describe('output', () => {
     };
     const before = structuredClone({ step, context });
     expect(stepOutput('review', step, context)).toBe(
-      'TASK-1: docs/plan.md\n\nstepan next review --verdict <{{task}}>\n',
+      `${HEADER}TASK-1: docs/plan.md\n\n${EXIT} --verdict <{{task}}>\n`,
     );
     expect({ step, context }).toEqual(before);
+  });
+
+  it('prints empty lists and escapes multiline table cells', () => {
+    expect(runsOutput([], false)).toBe('No active runs.\n');
+    expect(runsOutput([], true)).toBe('No runs.\n');
+    const flow = validateFlow({ start: 'done', steps: { done: { instruction: '' } } });
+    const run: RunState = {
+      version: 1,
+      id: ID,
+      flowName: 'feature',
+      task: 'one\ntwo\t"three"',
+      step: 'done',
+      finished: false,
+      flow,
+      outcomes: {},
+    };
+    const output = runsOutput([run, { ...run, finished: true }], true);
+    expect(output.split('\n')).toHaveLength(4);
+    expect(output).toContain(JSON.stringify(run.task));
+    expect(output).toContain('"active"');
+    expect(output).toContain('"finished"');
   });
 });

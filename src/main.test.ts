@@ -4,6 +4,7 @@ import * as store from './run-store.js';
 import { advanceRun, type RunState } from './run.js';
 import * as roots from './write-root.js';
 
+const ID = 'a7c93f2b';
 function capture(argv: string[]) {
   let stdout = '';
   let stderr = '';
@@ -14,378 +15,222 @@ function capture(argv: string[]) {
   return { code, stdout, stderr };
 }
 
-describe('run', () => {
-  it('prints usage when called without arguments', () => {
-    const result = capture([]);
-    expect(result.code).toBe(0);
-    expect(result.stdout).toContain('Usage: stepan');
-  });
-
-  it('prints the package version', () => {
-    const result = capture(['--version']);
-    expect(result.code).toBe(0);
-    expect(result.stdout).toMatch(/^\d+\.\d+\.\d+/);
-  });
-
-  it('rejects an unknown command with a usage error', () => {
-    const result = capture(['frobnicate']);
-    expect(result.code).toBe(2);
-    expect(result.stderr).toContain("unknown command 'frobnicate'");
-  });
-
-  it('prints start help without reading a flow or writing state', () => {
-    expect(capture(['start', '--help'])).toEqual({
-      code: 0,
-      stdout: 'Usage: stepan start <flow> <task>\n',
-      stderr: '',
-    });
-  });
-
-  it.each([
-    { args: ['start'] },
-    { args: ['start', 'feature', ''] },
-    { args: ['start', 'feature', 'task', 'extra'] },
-    { args: ['start', '--help', '-h'] },
-    { args: ['start', '--unknown'] },
-  ])('rejects malformed start arguments (%#)', ({ args }) => {
-    const result = capture(args);
-    expect(result.code).toBe(2);
-    expect(result.stdout).toBe('');
-    expect(result.stderr).toContain('Usage: stepan start');
-  });
-});
-
-describe('next', () => {
-  const state: RunState = {
-    version: 1,
-    task: 'TASK-1',
-    step: 'review',
-    finished: false,
-    outcomes: {},
-    flow: {
-      start: 'review',
-      steps: {
-        review: {
-          instruction: 'Review.',
-          outcome: {
-            verdict: { type: 'enum', values: ['pass', 'fail'], required: true },
-            note: { type: 'string' },
-            help: { type: 'string' },
-            h: { type: 'string' },
-            version: { type: 'string' },
-            constructor: { type: 'string' as const },
-            x: { type: 'string' },
-          },
-          transitions: [{ to: 'finish' }],
+const state: RunState = {
+  version: 1,
+  id: ID,
+  flowName: 'feature',
+  task: 'TASK-1',
+  step: 'review',
+  finished: false,
+  outcomes: {},
+  flow: {
+    start: 'review',
+    steps: {
+      review: {
+        instruction: 'Review {{task}}.',
+        outcome: {
+          verdict: { type: 'enum', values: ['pass', 'fail'], required: true },
+          note: { type: 'string' },
+          help: { type: 'string' },
+          h: { type: 'string' },
+          version: { type: 'string' },
+          constructor: { type: 'string' as const },
+          x: { type: 'string' },
         },
-        finish: {
-          instruction: 'Finish.',
-          outcome: { summary: { type: 'string', required: true } },
-          transitions: [],
-        },
+        transitions: [{ to: 'finish' }],
+      },
+      finish: {
+        instruction: 'Finish {{steps.review.outcome.note}}.',
+        outcome: { summary: { type: 'string', required: true } },
+        transitions: [],
       },
     },
-  };
+  },
+};
 
-  beforeEach(() => {
-    vi.spyOn(roots, 'writeRoot').mockReturnValue('isolated-root');
-    vi.spyOn(store, 'loadRun').mockReturnValue(state);
-    vi.spyOn(store, 'saveNext').mockImplementation((_root, id, outcome) =>
-      advanceRun(state, id, outcome),
-    );
-  });
-  afterEach(() => vi.restoreAllMocks());
+beforeEach(() => {
+  vi.spyOn(roots, 'writeRoot').mockReturnValue('isolated-root');
+  vi.spyOn(store, 'loadRun').mockReturnValue(state);
+  vi.spyOn(store, 'updateRun').mockImplementation((_root, _id, update) => update(state));
+  vi.spyOn(store, 'abortRun').mockImplementation(() => undefined);
+  vi.spyOn(store, 'listRuns').mockReturnValue([]);
+});
+afterEach(() => vi.restoreAllMocks());
 
-  it('parses both long value forms and prints the saved next step', () => {
-    const result = capture(['next', 'review', '--verdict=pass', '--note', 'текст с пробелами']);
-    expect(result).toEqual({
-      code: 0,
-      stdout: 'Finish.\n\nstepan next finish --summary "<text>"\n',
-      stderr: '',
-    });
-    expect(roots.writeRoot).toHaveBeenCalledWith(process.cwd());
-    expect(store.loadRun).toHaveBeenCalledWith('isolated-root');
-    expect(store.saveNext).toHaveBeenCalledWith('isolated-root', 'review', {
-      verdict: 'pass',
-      note: 'текст с пробелами',
-    });
+describe('run', () => {
+  it('prints usage, version and unknown-command errors', () => {
+    expect(capture([])).toMatchObject({ code: 0, stderr: '' });
+    expect(capture([]).stdout).toContain('next <run-id>');
+    expect(capture(['--version']).stdout).toMatch(/^\d+\.\d+\.\d+/);
+    expect(capture(['unknown'])).toMatchObject({ code: 2, stdout: '' });
   });
 
-  it('substitutes from the saved state rather than the preliminary read', () => {
-    const saved = advanceRun(state, 'review', { verdict: 'pass', note: 'new value' });
-    saved.task = 'SAVED-TASK';
-    saved.flow = {
-      ...saved.flow,
-      steps: {
-        ...saved.flow.steps,
-        finish: {
-          instruction: '{{task}}: {{steps.review.outcome.verdict}}; {{steps.review.outcome.note}}.',
-          outcome: {},
-          transitions: [],
-        },
-      },
-    };
-    vi.mocked(store.saveNext).mockReturnValue(saved);
-    expect(capture(['next', 'review', '--verdict=pass', '--note', 'new value'])).toEqual({
-      code: 0,
-      stdout: 'SAVED-TASK: pass; new value.\n\nstepan next finish\n',
-      stderr: '',
-    });
-    expect(state.outcomes).toEqual({});
-  });
-
-  it('does not reserve help, h, version or prototype property names after the step', () => {
-    expect(
-      capture([
-        'next',
-        'review',
-        '--verdict',
-        'pass',
-        '--help',
-        'value',
-        '--h',
-        'value',
-        '--version',
-        'value',
-        '--constructor',
-        'value',
-      ]).code,
-    ).toBe(0);
-    expect(store.saveNext).toHaveBeenCalledWith('isolated-root', 'review', {
-      verdict: 'pass',
-      help: 'value',
-      h: 'value',
-      version: 'value',
-      constructor: 'value',
-    });
-  });
-
-  it('keeps empty optional and leading-dash string values', () => {
-    expect(capture(['next', 'review', '--verdict=pass', '--note=-text', '--help=']).code).toBe(0);
-    expect(store.saveNext).toHaveBeenCalledWith('isolated-root', 'review', {
-      verdict: 'pass',
-      note: '-text',
-      help: '',
-    });
-  });
-
-  it.each(['-h', '--help'])('prints standalone %s without reading state', (flag) => {
-    expect(capture(['next', flag])).toEqual({
-      code: 0,
-      stdout: 'Usage: stepan next <step> [--<field> <value>...]\n',
-      stderr: '',
-    });
-    expect(store.loadRun).not.toHaveBeenCalled();
-    expect(roots.writeRoot).not.toHaveBeenCalled();
-    expect(store.saveNext).not.toHaveBeenCalled();
-  });
-
-  it.each([[], [''], ['--verdict', 'pass'], ['--help', 'extra'], ['-h', '--help']])(
-    'rejects a missing or misplaced step without reading state (%#)',
-    (...args) => {
-      expect(capture(['next', ...args])).toMatchObject({ code: 2, stdout: '' });
-      expect(store.loadRun).not.toHaveBeenCalled();
+  it.each(['start', 'current', 'next', 'abort', 'runs'])(
+    'prints standalone help for %s without I/O',
+    (command) => {
+      for (const flag of ['-h', '--help']) {
+        const result = capture([command, flag]);
+        expect(result).toMatchObject({ code: 0, stderr: '' });
+        expect(result.stdout).toContain(`Usage: stepan ${command}`);
+      }
       expect(roots.writeRoot).not.toHaveBeenCalled();
-      expect(store.saveNext).not.toHaveBeenCalled();
     },
   );
 
   it.each([
-    ['--verdict', 'pass', 'extra'],
+    ['start'],
+    ['start', 'feature', ''],
+    ['start', 'feature', 'task', 'extra'],
+    ['start', '--help', '-h'],
+    ['start', '--unknown'],
+    ['current'],
+    ['current', ID, 'extra'],
+    ['current', '--help', ID],
+    ['current', '-hh'],
+    ['abort'],
+    ['abort', ID, '--unknown'],
+    ['abort', '--help', '-h'],
+    ['next'],
+    ['next', 'review'],
+    ['next', '../outside'],
+    ['next', '--verdict', 'pass'],
+    ['runs', '--all', '--all'],
+    ['runs', 'extra'],
+    ['runs', '--help', '--all'],
+    ['runs', '--unknown'],
+  ])('rejects bad command arguments before accessing state (%#)', (...args) => {
+    expect(capture(args)).toMatchObject({ code: 2, stdout: '' });
+    expect(roots.writeRoot).not.toHaveBeenCalled();
+  });
+});
+
+describe('next', () => {
+  it('parses long values using locked state and prints the saved next step', () => {
+    expect(capture(['next', ID, '--verdict=pass', '--note', 'текст с пробелами'])).toEqual({
+      code: 0,
+      stderr: '',
+      stdout: `Run: ${ID}\nStep: finish\n\nFinish текст с пробелами.\n\nstepan next ${ID} --summary "<text>"\n`,
+    });
+    expect(store.loadRun).not.toHaveBeenCalled();
+    expect(store.updateRun).toHaveBeenCalledWith('isolated-root', ID, expect.any(Function));
+    expect(state.outcomes).toEqual({});
+  });
+
+  it('allows help, h, version and prototype field names after the ID', () => {
+    const result = capture([
+      'next',
+      ID,
+      '--verdict=pass',
+      '--help=',
+      '--h=value',
+      '--version=0',
+      '--constructor=-text',
+    ]);
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe('');
+  });
+
+  it.each([
+    ['review', '--verdict=pass'],
     ['--unknown', 'value'],
     ['--verdict'],
     ['--verdict=pass', '--verdict', 'fail'],
-    ['--verdict', 'pass', '--note', '-text'],
-    ['--verdict', 'pass', '-x', 'value'],
-    ['--verdict', 'pass', '-h', 'value'],
-  ])('rejects malformed outcome arguments without saving (%#)', (...args) => {
-    const result = capture(['next', 'review', ...args]);
-    expect(result.code).toBe(2);
-    expect(result.stdout).toBe('');
-    expect(result.stderr).toContain('Usage: stepan next');
-    expect(store.saveNext).not.toHaveBeenCalled();
+    ['--verdict=pass', '--note', '-text'],
+    ['--verdict=pass', '-x', 'value'],
+    ['--verdict=pass', '-h', 'value'],
+  ])('rejects malformed outcomes inside the update without a preliminary read (%#)', (...args) => {
+    expect(capture(['next', ID, ...args])).toMatchObject({ code: 2, stdout: '' });
+    expect(store.loadRun).not.toHaveBeenCalled();
   });
 
   it.each([[], ['--verdict='], ['--verdict=other']])(
-    'reports semantic outcome errors with exit code 1 (%#)',
+    'reports semantic errors as code 1 (%#)',
     (...args) => {
-      const result = capture(['next', 'review', ...args]);
-      expect(result.code).toBe(1);
-      expect(result.stdout).toBe('');
+      const result = capture(['next', ID, ...args]);
+      expect(result).toMatchObject({ code: 1, stdout: '' });
       expect(result.stderr).toContain('verdict');
       expect(result.stderr).not.toContain('Usage:');
     },
   );
 
-  it('finishes a final step only after saving its outcome', () => {
-    const last = { ...state, step: 'finish' };
-    vi.mocked(store.loadRun).mockReturnValue(last);
-    vi.mocked(store.saveNext).mockImplementation((_root, id, outcome) =>
-      advanceRun(last, id, outcome),
+  it('uses the schema of the actual state passed to the update', () => {
+    vi.mocked(store.updateRun).mockImplementation((_root, _id, update) =>
+      update({ ...state, step: 'finish' }),
     );
-    expect(capture(['next', 'finish', '--summary', 'Done.'])).toEqual({
+    expect(capture(['next', ID, '--summary=Done.'])).toEqual({
       code: 0,
-      stdout: 'Run is finished.\n',
+      stdout: `Run ${ID} is finished.\n`,
       stderr: '',
     });
+    expect(capture(['next', ID, '--verdict=pass'])).toMatchObject({ code: 2, stdout: '' });
   });
 
-  it('refuses a finished run before parsing outcome flags', () => {
-    vi.mocked(store.loadRun).mockReturnValue({ ...state, finished: true });
-    expect(capture(['next', 'review', '--unknown'])).toEqual({
-      code: 1,
-      stdout: '',
-      stderr: 'stepan: Run is finished.\n',
-    });
-    expect(store.saveNext).not.toHaveBeenCalled();
-  });
-
-  it('refuses a mismatched step before parsing outcome flags', () => {
-    const result = capture(['next', 'finish', '--unknown']);
-    expect(result.code).toBe(1);
-    expect(result.stdout).toBe('');
-    expect(result.stderr).toContain("current: 'review'");
-    expect(store.saveNext).not.toHaveBeenCalled();
-  });
-
-  it.each(['loadRun', 'saveNext'] as const)('prints no success output when %s fails', (method) => {
-    vi.mocked(store[method]).mockImplementation(() => {
-      throw new Error('I/O failed');
-    });
-    expect(capture(['next', 'review', '--verdict=pass'])).toEqual({
-      code: 1,
-      stdout: '',
-      stderr: 'stepan: I/O failed\n',
-    });
-  });
-
-  it('does not save an outdated step from the preliminary read', () => {
-    vi.mocked(store.saveNext).mockImplementation((_root, id, outcome) =>
-      advanceRun({ ...state, step: 'finish' }, id, outcome),
+  it('reports a finished run before parsing outcome flags', () => {
+    vi.mocked(store.updateRun).mockImplementation((_root, _id, update) =>
+      update({ ...state, finished: true }),
     );
-    const result = capture(['next', 'review', '--verdict=pass']);
-    expect(result.code).toBe(1);
-    expect(result.stdout).toBe('');
-    expect(result.stderr).toContain("current: 'finish'");
+    expect(capture(['next', ID, '--unknown'])).toEqual({
+      code: 1,
+      stdout: '',
+      stderr: `stepan: Run ${ID} is finished.\n`,
+    });
+  });
+
+  it('prints the persisted result, not an earlier snapshot', () => {
+    const saved = advanceRun(state, { verdict: 'pass', note: 'saved' });
+    vi.mocked(store.updateRun).mockReturnValue(saved);
+    expect(capture(['next', ID, '--verdict=pass']).stdout).toContain('Finish saved.');
   });
 });
 
-describe('current', () => {
-  const state: RunState = {
-    version: 1,
-    task: 'TASK-1',
-    step: 'review',
-    finished: false,
-    flow: {
-      start: 'plan',
-      steps: {
-        plan: { instruction: 'Plan.', outcome: {}, transitions: [{ to: 'review' }] },
-        review: { instruction: 'Review.', outcome: {}, transitions: [] },
-      },
-    },
-    outcomes: {},
-  };
-
-  beforeEach(() => {
-    vi.spyOn(roots, 'writeRoot').mockReturnValue('isolated-root');
-    vi.spyOn(store, 'loadRun').mockReturnValue(state);
-  });
-  afterEach(() => vi.restoreAllMocks());
-
-  it('reads the current step from the resolved root without the graph', () => {
-    expect(capture(['current'])).toEqual({
+describe('state commands', () => {
+  it('reads current without a graph and includes the ID', () => {
+    expect(capture(['current', ID])).toEqual({
       code: 0,
-      stdout: 'Review.\n\nstepan next review\n',
       stderr: '',
+      stdout: `Run: ${ID}\nStep: review\n\nReview TASK-1.\n\nstepan next ${ID} --verdict <pass|fail> [--note "<text>"] [--help "<text>"] [--h "<text>"] [--version "<text>"] [--constructor "<text>"] [--x "<text>"]\n`,
     });
-    expect(roots.writeRoot).toHaveBeenCalledWith(process.cwd());
-    expect(store.loadRun).toHaveBeenCalledWith('isolated-root');
+    expect(store.loadRun).toHaveBeenCalledWith('isolated-root', ID);
   });
 
-  it('substitutes the task and stored outcome without changing the loaded snapshot', () => {
-    const loaded: RunState = {
-      ...state,
-      outcomes: { plan: { path: 'docs/plan.md' } },
-      flow: {
-        ...state.flow,
-        steps: {
-          ...state.flow.steps,
-          plan: {
-            instruction: 'Plan.',
-            outcome: { path: { type: 'string' } },
-            transitions: [{ to: 'review' }],
-          },
-          review: {
-            instruction: '{{task}}: {{steps.plan.outcome.path}}.',
-            outcome: {},
-            transitions: [],
-          },
-        },
-      },
-    };
-    const before = structuredClone(loaded);
-    vi.mocked(store.loadRun).mockReturnValue(loaded);
-    expect(capture(['current'])).toEqual({
-      code: 0,
-      stdout: 'TASK-1: docs/plan.md.\n\nstepan next review\n',
-      stderr: '',
-    });
-    expect(loaded).toEqual(before);
-  });
-
-  it('reports a finished run instead of printing its step', () => {
+  it('reports completion without printing an instruction', () => {
     vi.mocked(store.loadRun).mockReturnValue({ ...state, finished: true });
-    expect(capture(['current'])).toEqual({
+    expect(capture(['current', ID])).toEqual({
       code: 0,
-      stdout: 'Run is finished.\n',
+      stdout: `Run ${ID} is finished.\n`,
       stderr: '',
     });
   });
 
-  it('reports read failures without a stack trace', () => {
-    vi.mocked(store.loadRun).mockImplementation(() => {
-      throw new Error('Cannot read run');
-    });
-    expect(capture(['current'])).toEqual({
-      code: 1,
-      stdout: '',
-      stderr: 'stepan: Cannot read run\n',
-    });
-  });
-
-  it('guards against an unknown current step', () => {
+  it('guards an unknown current step', () => {
     vi.mocked(store.loadRun).mockReturnValue({ ...state, step: 'missing' });
-    expect(capture(['current'])).toEqual({
-      code: 1,
-      stdout: '',
-      stderr: "stepan: Unknown current step 'missing'\n",
-    });
+    const result = capture(['current', ID]);
+    expect(result).toMatchObject({ code: 1, stdout: '' });
+    expect(result.stderr).toContain('Unknown current step');
   });
 
-  it.each(['-h', '--help'])('prints %s without reading state', (flag) => {
-    expect(capture(['current', flag])).toEqual({
-      code: 0,
-      stdout: 'Usage: stepan current\n',
-      stderr: '',
-    });
-    expect(roots.writeRoot).not.toHaveBeenCalled();
+  it('deletes a named run without loading or validating its state', () => {
+    expect(capture(['abort', ID])).toEqual({ code: 0, stdout: `Run ${ID} deleted.\n`, stderr: '' });
+    expect(store.abortRun).toHaveBeenCalledWith('isolated-root', ID);
     expect(store.loadRun).not.toHaveBeenCalled();
+  });
+
+  it('lists active or all runs', () => {
+    expect(capture(['runs']).stdout).toBe('No active runs.\n');
+    expect(store.listRuns).toHaveBeenLastCalledWith('isolated-root', false);
+    expect(capture(['runs', '--all']).stdout).toBe('No runs.\n');
+    expect(store.listRuns).toHaveBeenLastCalledWith('isolated-root', true);
   });
 
   it.each([
-    ['extra'],
-    ['--', 'extra'],
-    ['--unknown'],
-    ['--help=true'],
-    ['--help', '-h'],
-    ['-hh'],
-    ['--help', 'extra'],
-  ])('rejects malformed arguments without reading state (%#)', (...args) => {
-    const result = capture(['current', ...args]);
-    expect(result.code).toBe(2);
-    expect(result.stdout).toBe('');
-    expect(result.stderr).toContain('Usage: stepan current');
-    expect(roots.writeRoot).not.toHaveBeenCalled();
-    expect(store.loadRun).not.toHaveBeenCalled();
+    { args: ['current', ID], method: 'loadRun' },
+    { args: ['next', ID], method: 'updateRun' },
+    { args: ['abort', ID], method: 'abortRun' },
+    { args: ['runs'], method: 'listRuns' },
+  ] as const)('prints no success output when $method fails', ({ args, method }) => {
+    vi.mocked(store[method]).mockImplementation(() => {
+      throw new Error('I/O failed');
+    });
+    expect(capture([...args])).toEqual({ code: 1, stdout: '', stderr: 'stepan: I/O failed\n' });
   });
 });

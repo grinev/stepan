@@ -3,8 +3,8 @@
 What Stepan is and how it behaves. This file describes the current intent; it is not a gate. A
 change that goes beyond it updates it in the same change.
 
-**State:** 0.1 is specified below; `start`, `current`, `next` and instruction placeholder
-substitution are implemented. `abort` is not implemented yet.
+**State:** 0.1 is specified below; `start`, `current`, `next`, `abort`, `runs`, independent
+run IDs and instruction placeholder substitution are implemented. Checks and hooks are not.
 
 ## Problem
 
@@ -33,8 +33,8 @@ scripts, discoverable through a skill. Works in any harness with a shell.
 
 ## Version 0.1
 
-The first release walks a flow and nothing else: `start`, `current`, `next`, `abort`. No checks,
-no hooks, no tracker. This section is the contract; code follows it, not a chat.
+The first release walks independent flows: `start`, `current`, `next`, `abort`, `runs`.
+No checks, no hooks, no tracker. This section is the contract; code follows it, not a chat.
 
 ### Flow
 
@@ -107,7 +107,7 @@ when it needs rework; a failed review goes back to `implement`.
   empty text. Substitution runs once: task and outcome values are data rather than nested
   templates. The snapshot keeps the original instruction text; substitution only affects output.
 - **Names** — a step id and an outcome field name start with an ASCII letter and continue with
-  ASCII letters, digits, `-` or `_`. A step id is a positional argument and a placeholder segment;
+  ASCII letters, digits, `-` or `_`. A step id is a graph key and a placeholder segment;
   an outcome field name is a CLI flag and a placeholder segment.
 
 `start` validates the flow before it writes anything:
@@ -128,13 +128,21 @@ A refused flow says what is wrong and, when there is a step or a key, names it.
 
 ### Run
 
-- One run per directory.
-- The run file is `.stepan/run.json` under the write root from
+- One session drives a run; several independent runs can coexist in one working directory.
+  Stepan isolates run state, not working-tree changes: use worktrees when code changes need
+  isolation. Managing the same run from multiple sessions is not the intended workflow.
+- A run ID is eight lowercase hex characters, such as `a7c93f2b`, generated from four random
+  bytes. A collision retries with a new ID without overwriting anything; ten consecutive
+  collisions are an error. IDs are used in full, with no abbreviations or implicit latest run:
+  parallel sessions must not accidentally advance each other's runs.
+- Each run file is `.stepan/runs/<run-id>.json` under the write root from
   [docs/development.md](./docs/development.md): a test's temporary directory, `.dev-data/` when
   run from sources, the project directory for an installed package.
 - The file holds:
 
   - `version` — the run file format, `1`;
+  - `id` — the run ID, matching the filename;
+  - `flowName` — the flow name from `start`, for listing;
   - `task` — the string from `start`;
   - `step` — the current step id;
   - `finished` — whether the run is over;
@@ -144,54 +152,67 @@ A refused flow says what is wrong and, when there is a step or a key, names it.
 
 - `start` snapshots the graph and every instruction text into the run file. Editing the YAML or a
   Markdown file mid-run changes nothing.
-- `start` while a run is live refuses and leaves the run untouched. A finished run is replaced.
-- A run file that cannot be read or has an unknown `version` is an error for `start`, `current`
-  and `next`; `start` never overwrites it. `abort` deletes it.
+- `start` always creates a separate run, including for the same flow and task. Existing active
+  and finished runs are retained, unchanged. Finishing a run does not delete it.
+- A selected run file that cannot be read or has an unknown `version` is an error for `current`
+  and `next`. `runs` also reports unreadable or invalid run files instead of silently hiding them.
+  `abort` can delete a file without parsing it. An unrelated damaged run does not block `start`.
 - A step visited again replaces its outcome; an instruction sees the latest one.
 - Surviving `git clean` is out of 0.1 — see Open questions.
 
 ### Commands
 
-| Command                                | Does                                                                    |
-| -------------------------------------- | ----------------------------------------------------------------------- |
-| `stepan start <flow> <task>`           | validates the flow, writes the run, prints the graph and the start step |
-| `stepan current`                       | prints the current step from the snapshot                               |
-| `stepan next <step> --<field> <value>` | takes the current step's outcome and moves on                           |
-| `stepan abort`                         | deletes the run                                                         |
+| Command                                  | Does                                                            |
+| ---------------------------------------- | --------------------------------------------------------------- |
+| `stepan start <flow> <task>`             | creates a run, prints the graph, run ID and first instruction   |
+| `stepan current <run-id>`                | prints the selected run's current instruction from its snapshot |
+| `stepan next <run-id> --<field> <value>` | takes the selected run's current outcome and moves on           |
+| `stepan abort <run-id>`                  | deletes the selected run                                        |
+| `stepan runs`                            | lists active runs                                               |
+| `stepan runs --all`                      | lists active and retained finished runs                         |
 
 - `<flow>` names a directory under `flows/` in the working directory: `stepan start feature` reads
   `flows/feature/flow.yaml`. `<task>` is any non-empty string kept in the run for `{{task}}`;
   Stepan does not resolve it against a tracker.
 - **Graph overview** — a line per step: the step, each transition with the value that selects it,
   and `(final)` for a step without transitions.
-- **`current`** — how a new session resumes after a restart or a compaction: the same step from
-  the snapshot, placeholders filled.
-- **Step output** — the instruction with placeholders filled, then the exit line: `stepan next`
-  with the step and every outcome field — a required string as `--plan "<text>"`, an enum as
+- **Run selection** — `current`, `next` and `abort` require a valid run ID; omission or an invalid
+  ID is a usage error. They never guess a run from its task, flow, recency or harness session.
+- **`current`** — how a session resumes after a restart or a compaction: the same step from
+  the selected run's snapshot, placeholders filled. Use `runs` to recover a forgotten ID.
+- **Step output** — `Run: <run-id>` and `Step: <step-id>`, the instruction with placeholders
+  filled, then the exit line: `stepan next` with the actual run ID already filled in and every
+  outcome field — a required string as `--plan "<text>"`, an enum as
   `--verdict <pass|fail>`, an optional field in brackets. The line is a template, not a command to
-  paste as is: the agent replaces the placeholders.
-- **`next`** — `<step>` must be the current step: a mismatch is an error and the run stays. An
+  paste as is: the agent replaces outcome placeholders, not the run ID.
+- **`next`** — the current step is taken from the selected run's state, not a CLI argument. An
   unknown flag or a flag given twice is a usage error. A missing required field or a value outside
   an enum is refused with a message naming it; the run stays. A valid outcome is checked against
   the transitions; the first match is taken, the outcome is stored, and the target step is printed
   in the Step output format. A final step takes the outcome and finishes the run: that `next` call
-  prints that the run is finished, and later `next` and `current` report the same (`current` exits
+  prints `Run <run-id> is finished.`, and later `next` and `current` report the same (`current` exits
   0, `next` exits 1). If no transition matches, the command fails and the run is unchanged.
-- **`next` arguments** — the step id comes first, followed by long outcome flags. Both
+- **`next` arguments** — the run ID comes first, followed by long outcome flags. Both
   `--field value` and `--field=value` work; use the latter for a value beginning with `-`.
   Standalone `stepan next --help` or `stepan next -h` prints usage without reading the run.
-  After the step id, `help`, `h` and `version` are ordinary outcome field names, not reserved
-  options. An unreadable run, a finished run or a mismatched step is reported before parsing
+  After the run ID, `help`, `h` and `version` are ordinary outcome field names, not reserved
+  options. An unreadable run or a finished run is reported before parsing
   outcome flags; otherwise malformed flags are usage errors.
-- **`abort`** — deletes the run; without a run it is an error.
-- Errors go to stderr and exit non-zero: 1 for a refused flow, a missing or unreadable run, a live
-  run on `start`, a step that is not current, a bad outcome or no matching transition; 2 for wrong
-  usage.
+- **`abort`** — deletes the selected active or finished run, including damaged JSON or an unknown
+  version; reports `Run <run-id> deleted.`. A missing run is an error. Other runs are unchanged.
+  Deleted runs do not appear in either listing.
+- **`runs`** — prints ID, flow, task, current step and status (`active` or `finished`), sorted by
+  ID. The table has a header and tab-separated JSON-quoted cells, escaping multiline values so
+  each run takes one row. Empty lists print `No active runs.` or `No runs.` with exit code 0.
+  `--all` includes finished runs; it does not provide a transition history. Lock files are ignored.
+- Errors go to stderr and exit non-zero: 1 for a refused flow, a missing or unreadable run,
+  a busy lock, an I/O failure, ID allocation failure, a bad outcome or no matching transition;
+  2 for wrong usage, including an absent or invalid run ID or an extra positional step.
 
 ### Not in 0.1
 
 Checks of any level, optional steps, `on_enter`/`on_leave` and the tracker, `stepan show`, harness
-hooks, the transition log, round counters, `--mode`, several runs per directory, a step library,
+hooks, the transition log, round counters, `--mode`, a step library,
 an agent skill. Surviving `git clean` is open, not promised.
 
 ## After 0.1
@@ -248,7 +269,8 @@ line in the YAML.
 
 **Keeping the agent on the flow.** A long step pushes the exit line far back, so a harness hook
 backs it up: a stop hook refuses to let the session end while the run is not in a final state; a
-hook after compaction calls `stepan current` and puts the step back into context.
+hook after compaction calls `stepan current <run-id>` and puts the step back into context.
+The thin integration must supply the session's run ID; core does not bind runs to harness sessions.
 
 **Transition log.** Time, step, outcome, round number — step durations without digging through
 session logs.

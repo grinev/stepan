@@ -2,6 +2,8 @@ import { record, type Flow, type OutcomeField, type Step } from './flow.js';
 
 export interface RunState {
   version: 1;
+  id: string;
+  flowName: string;
   task: string;
   step: string;
   finished: boolean;
@@ -32,16 +34,17 @@ export function validateOutcome(
   return values as Record<string, string>;
 }
 
-export function currentStep(run: RunState, id: string): Step {
-  if (run.finished) throw new Error('Run is finished.');
-  if (id !== run.step) throw new Error(`Step '${id}' is not current (current: '${run.step}')`);
+export function currentStep(run: RunState): Step {
+  if (run.finished) throw new Error(`Run ${run.id} is finished.`);
+  const id = run.step;
   const step = Object.hasOwn(run.flow.steps, id) ? run.flow.steps[id] : undefined;
   if (step === undefined) throw new Error(`Unknown current step '${id}'`);
   return step;
 }
 
-export function advanceRun(run: RunState, id: string, value: Record<string, string>): RunState {
-  const step = currentStep(run, id);
+export function advanceRun(run: RunState, value: Record<string, string>): RunState {
+  const id = run.step;
+  const step = currentStep(run);
   const outcome = validateOutcome(value, step.outcome, `steps.${id}.outcome`);
   const outcomes = { ...run.outcomes, [id]: outcome };
   if (step.transitions.length === 0) return { ...run, outcomes, finished: true };

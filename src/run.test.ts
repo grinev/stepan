@@ -12,7 +12,16 @@ function state(
   },
 ): RunState {
   const flow = validateFlow(definition);
-  return { version: 1, task: 'TASK-1', step: flow.start, finished: false, flow, outcomes: {} };
+  return {
+    version: 1,
+    id: 'a7c93f2b',
+    flowName: 'feature',
+    task: 'TASK-1',
+    step: flow.start,
+    finished: false,
+    flow,
+    outcomes: {},
+  };
 }
 
 describe('validateOutcome', () => {
@@ -58,15 +67,14 @@ describe('validateOutcome', () => {
 });
 
 describe('currentStep', () => {
-  it('returns the current step and refuses another step or a finished run', () => {
+  it('returns the current step and refuses a finished run', () => {
     const run = state();
-    expect(currentStep(run, 'first')).toBe(run.flow.steps.first);
-    expect(() => currentStep(run, 'last')).toThrow("current: 'first'");
-    expect(() => currentStep({ ...run, finished: true }, 'first')).toThrow('Run is finished.');
+    expect(currentStep(run)).toBe(run.flow.steps.first);
+    expect(() => currentStep({ ...run, finished: true })).toThrow(`Run ${run.id} is finished.`);
   });
 
   it.each(['missing', 'constructor'])('guards an invalid current step %s', (step) => {
-    expect(() => currentStep({ ...state(), step }, step)).toThrow('Unknown current step');
+    expect(() => currentStep({ ...state(), step })).toThrow('Unknown current step');
   });
 });
 
@@ -74,13 +82,13 @@ describe('advanceRun', () => {
   it('enters but does not finish a final step, then stores its empty outcome on completion', () => {
     const before = state();
     const copy = structuredClone(before);
-    const moved = advanceRun(before, 'first', {});
+    const moved = advanceRun(before, {});
     expect(moved).toEqual({ ...before, step: 'last', outcomes: { first: {} } });
     expect(before).toEqual(copy);
-    const finished = advanceRun(moved, 'last', {});
+    const finished = advanceRun(moved, {});
     expect(finished).toEqual({ ...moved, finished: true, outcomes: { first: {}, last: {} } });
     expect(moved.finished).toBe(false);
-    expect(() => advanceRun(finished, 'last', {})).toThrow('Run is finished.');
+    expect(() => advanceRun(finished, {})).toThrow('is finished.');
   });
 
   it('validates an outcome before finishing a final step', () => {
@@ -91,9 +99,9 @@ describe('advanceRun', () => {
       },
     });
     const copy = structuredClone(before);
-    expect(() => advanceRun(before, 'last', {})).toThrow('text: required');
+    expect(() => advanceRun(before, {})).toThrow('text: required');
     expect(before).toEqual(copy);
-    expect(advanceRun(before, 'last', { text: 'Done.' })).toMatchObject({
+    expect(advanceRun(before, { text: 'Done.' })).toMatchObject({
       finished: true,
       step: 'last',
       outcomes: { last: { text: 'Done.' } },
@@ -116,9 +124,9 @@ describe('advanceRun', () => {
         last: { instruction: 'Last.' },
       },
     });
-    expect(advanceRun(run, 'review', { verdict: 'fail' }).step).toBe('review');
-    expect(advanceRun(run, 'review', { verdict: 'pass' }).step).toBe('last');
-    expect(advanceRun(run, 'review', {}).step).toBe('last');
+    expect(advanceRun(run, { verdict: 'fail' }).step).toBe('review');
+    expect(advanceRun(run, { verdict: 'pass' }).step).toBe('last');
+    expect(advanceRun(run, {}).step).toBe('last');
   });
 
   it('does not treat missing optional or inherited fields as matching values', () => {
@@ -137,9 +145,9 @@ describe('advanceRun', () => {
         last: { instruction: 'Last.' },
       },
     });
-    expect(advanceRun(run, 'first', {}).step).toBe('last');
-    expect(advanceRun(run, 'first', { note: '' }).step).toBe('first');
-    expect(advanceRun(run, 'first', { constructor: 'value' }).step).toBe('first');
+    expect(advanceRun(run, {}).step).toBe('last');
+    expect(advanceRun(run, { note: '' }).step).toBe('first');
+    expect(advanceRun(run, { constructor: 'value' }).step).toBe('first');
   });
 
   it('replaces a revisited outcome rather than merging optional fields', () => {
@@ -154,16 +162,16 @@ describe('advanceRun', () => {
         second: { instruction: 'Second.', transitions: [{ to: 'first' }] },
       },
     });
-    const one = advanceRun(before, 'first', { text: 'old', note: 'remove' });
-    const two = advanceRun(one, 'second', {});
-    const three = advanceRun(two, 'first', { text: 'new' });
+    const one = advanceRun(before, { text: 'old', note: 'remove' });
+    const two = advanceRun(one, {});
+    const three = advanceRun(two, { text: 'new' });
     expect(three.outcomes).toEqual({ first: { text: 'new' }, second: {} });
     expect(three.flow).toBe(before.flow);
     expect(three.task).toBe(before.task);
     expect(two.outcomes.first).toEqual({ text: 'old', note: 'remove' });
   });
 
-  it('leaves state unchanged on a mismatch or when no transition matches', () => {
+  it('leaves state unchanged when no transition matches', () => {
     const run = state({
       start: 'first',
       steps: {
@@ -175,8 +183,7 @@ describe('advanceRun', () => {
       },
     });
     const copy = structuredClone(run);
-    expect(() => advanceRun(run, 'other', { note: 'yes' })).toThrow('not current');
-    expect(() => advanceRun(run, 'first', { note: 'no' })).toThrow('no matching transition');
+    expect(() => advanceRun(run, { note: 'no' })).toThrow('no matching transition');
     expect(run).toEqual(copy);
   });
 });

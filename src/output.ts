@@ -1,7 +1,7 @@
 import type { Flow, Step } from './flow.js';
 import type { RunState } from './run.js';
 
-type InstructionContext = Pick<RunState, 'task' | 'outcomes'>;
+type InstructionContext = Pick<RunState, 'id' | 'task' | 'outcomes'>;
 
 export function graphOverview(flow: Flow): string {
   return Object.entries(flow.steps)
@@ -41,7 +41,17 @@ export function stepOutput(id: string, step: Step, context: InstructionContext):
     const flag = `--${field} ${value}`;
     return schema.required === true ? flag : `[${flag}]`;
   });
-  const command = ['stepan next', id, ...flags].join(' ');
+  const command = ['stepan next', context.id, ...flags].join(' ');
   const instruction = instructionText(step.instruction, context);
-  return `${instruction}${instruction.endsWith('\n') ? '' : '\n'}\n${command}\n`;
+  return `Run: ${context.id}\nStep: ${id}\n\n${instruction}${instruction.endsWith('\n') ? '' : '\n'}\n${command}\n`;
+}
+
+export function runsOutput(runs: RunState[], all: boolean): string {
+  if (runs.length === 0) return all ? 'No runs.\n' : 'No active runs.\n';
+  const lines = runs.map((run) =>
+    [run.id, run.flowName, run.task, run.step, run.finished ? 'finished' : 'active']
+      .map((value) => JSON.stringify(value))
+      .join('\t'),
+  );
+  return `ID\tFLOW\tTASK\tSTEP\tSTATUS\n${lines.join('\n')}\n`;
 }

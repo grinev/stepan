@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { loadFlow, type Step } from './flow.js';
-import { graphOverview, stepOutput } from './output.js';
-import { loadRun, saveNext, saveStart } from './run-store.js';
-import { currentStep } from './run.js';
+import { graphOverview, runsOutput, stepOutput } from './output.js';
+import { abortRun, listRuns, loadRun, saveStart, updateRun, validateRunId } from './run-store.js';
+import { advanceRun, currentStep } from './run.js';
 import { writeRoot } from './write-root.js';
 
 export interface Output {
@@ -15,8 +15,10 @@ const USAGE = `Usage: stepan <command>
 
 Commands:
   start <flow> <task>  validate a flow and start a run
-  current              print the current step from the snapshot
-  next <step> [--<field> <value>...]  report an outcome and advance the run
+  current <run-id>      print the current step from the snapshot
+  next <run-id> [--<field> <value>...]  report an outcome and advance the run
+  abort <run-id>        delete a run
+  runs [--all]          list active runs, or include finished runs
 
 Options:
   -v, --version  print the version
@@ -24,8 +26,12 @@ Options:
 `;
 
 const START_USAGE = 'Usage: stepan start <flow> <task>\n';
-const CURRENT_USAGE = 'Usage: stepan current\n';
-const NEXT_USAGE = 'Usage: stepan next <step> [--<field> <value>...]\n';
+const CURRENT_USAGE = 'Usage: stepan current <run-id>\n';
+const NEXT_USAGE = 'Usage: stepan next <run-id> [--<field> <value>...]\n';
+const ABORT_USAGE = 'Usage: stepan abort <run-id>\n';
+const RUNS_USAGE = 'Usage: stepan runs [--all]\n';
+
+class UsageError extends Error {}
 
 /** Runs one CLI invocation and returns the process exit code. */
 export function run(argv: readonly string[], out: Output): number {
@@ -44,6 +50,8 @@ export function run(argv: readonly string[], out: Output): number {
   if (first === 'start') return start(argv.slice(1), out);
   if (first === 'current') return current(argv.slice(1), out);
   if (first === 'next') return next(argv.slice(1), out);
+  if (first === 'abort') return current(argv.slice(1), out, true);
+  if (first === 'runs') return runs(argv.slice(1), out);
 
   out.stderr(`stepan: unknown command '${first}'\n\n${USAGE}`);
   return 2;
@@ -77,7 +85,7 @@ function start(argv: readonly string[], out: Output): number {
     const [flowName = '', task = ''] = positionals;
     const cwd = process.cwd();
     const flow = loadFlow(cwd, flowName);
-    const run = saveStart(writeRoot(cwd), flow, task);
+    const run = saveStart(writeRoot(cwd), flow, flowName, task);
     const step = flow.steps[run.step];
     if (step === undefined) throw new Error(`Unknown start step '${run.step}'`);
     out.stdout(`${graphOverview(flow)}\n\n${stepOutput(run.step, step, run)}`);
@@ -88,31 +96,41 @@ function start(argv: readonly string[], out: Output): number {
   }
 }
 
-function current(argv: readonly string[], out: Output): number {
+function current(argv: readonly string[], out: Output, abort = false): number {
+  const usage = abort ? ABORT_USAGE : CURRENT_USAGE;
+  let id: string;
   try {
     const args = parseArgs({
       args: [...argv],
-      allowPositionals: false,
+      allowPositionals: true,
       options: { help: { type: 'boolean', short: 'h' } },
       tokens: true,
     });
     if (args.tokens.filter((token) => token.kind === 'option').length > 1) {
       throw new Error('Repeated option');
     }
-    if (args.values.help === true) {
-      out.stdout(CURRENT_USAGE);
+    if (args.values.help === true && args.positionals.length === 0) {
+      out.stdout(usage);
       return 0;
     }
+    if (args.values.help === true || args.positionals.length !== 1)
+      throw new Error('Expected a run ID');
+    id = args.positionals[0] ?? '';
+    validateRunId(id);
   } catch (error) {
-    out.stderr(
-      `stepan: ${error instanceof Error ? error.message : String(error)}\n${CURRENT_USAGE}`,
-    );
+    out.stderr(`stepan: ${error instanceof Error ? error.message : String(error)}\n${usage}`);
     return 2;
   }
   try {
-    const run = loadRun(writeRoot(process.cwd()));
+    const root = writeRoot(process.cwd());
+    if (abort) {
+      abortRun(root, id);
+      out.stdout(`Run ${id} deleted.\n`);
+      return 0;
+    }
+    const run = loadRun(root, id);
     if (run.finished) {
-      out.stdout('Run is finished.\n');
+      out.stdout(`Run ${id} is finished.\n`);
       return 0;
     }
     const step = run.flow.steps[run.step];
@@ -131,25 +149,61 @@ function next(argv: readonly string[], out: Output): number {
     out.stdout(NEXT_USAGE);
     return 0;
   }
-  if (id === undefined || id === '' || id.startsWith('-')) {
-    out.stderr(`stepan: Expected a step before outcome flags\n${NEXT_USAGE}`);
+  try {
+    validateRunId(id ?? '');
+  } catch (error) {
+    out.stderr(`stepan: ${error instanceof Error ? error.message : String(error)}\n${NEXT_USAGE}`);
+    return 2;
+  }
+  if (id === undefined) return 2;
+  try {
+    const root = writeRoot(process.cwd());
+    const run = updateRun(root, id, (loaded) => {
+      const step = currentStep(loaded);
+      let outcome: Record<string, string>;
+      try {
+        outcome = parseNextOutcome(argv.slice(1), step);
+      } catch (error) {
+        throw new UsageError(error instanceof Error ? error.message : String(error));
+      }
+      return advanceRun(loaded, outcome);
+    });
+    if (run.finished) out.stdout(`Run ${id} is finished.\n`);
+    else out.stdout(stepOutput(run.step, currentStep(run), run));
+    return 0;
+  } catch (error) {
+    if (error instanceof UsageError) {
+      out.stderr(`stepan: ${error.message}\n${NEXT_USAGE}`);
+      return 2;
+    }
+    out.stderr(`stepan: ${error instanceof Error ? error.message : String(error)}\n`);
+    return 1;
+  }
+}
+
+function runs(argv: readonly string[], out: Output): number {
+  let all: boolean;
+  try {
+    const args = parseArgs({
+      args: [...argv],
+      allowPositionals: false,
+      options: { help: { type: 'boolean', short: 'h' }, all: { type: 'boolean' } },
+      tokens: true,
+    });
+    const names = args.tokens.filter((token) => token.kind === 'option').map((token) => token.name);
+    if (new Set(names).size !== names.length) throw new Error('Repeated option');
+    if (args.values.help === true) {
+      if (args.values.all === true) throw new Error('Help must stand alone');
+      out.stdout(RUNS_USAGE);
+      return 0;
+    }
+    all = args.values.all === true;
+  } catch (error) {
+    out.stderr(`stepan: ${error instanceof Error ? error.message : String(error)}\n${RUNS_USAGE}`);
     return 2;
   }
   try {
-    const root = writeRoot(process.cwd());
-    const step = currentStep(loadRun(root), id);
-    let outcome: Record<string, string>;
-    try {
-      outcome = parseNextOutcome(argv.slice(1), step);
-    } catch (error) {
-      out.stderr(
-        `stepan: ${error instanceof Error ? error.message : String(error)}\n${NEXT_USAGE}`,
-      );
-      return 2;
-    }
-    const run = saveNext(root, id, outcome);
-    if (run.finished) out.stdout('Run is finished.\n');
-    else out.stdout(stepOutput(run.step, currentStep(run, run.step), run));
+    out.stdout(runsOutput(listRuns(writeRoot(process.cwd()), all), all));
     return 0;
   } catch (error) {
     out.stderr(`stepan: ${error instanceof Error ? error.message : String(error)}\n`);
