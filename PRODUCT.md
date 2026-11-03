@@ -3,7 +3,7 @@
 What Stepan is and how it behaves. This file describes the current intent; it is not a gate. A
 change that goes beyond it updates it in the same change.
 
-**State:** 0.1 is specified below; `start`, `current`, `next`, `abort`, `runs`, independent
+**State:** 0.1 is specified below; `start`, `current`, `next`, `rm`, `runs`, independent
 run IDs and instruction placeholder substitution are implemented. Checks and hooks are not.
 
 ## Problem
@@ -33,7 +33,7 @@ scripts, discoverable through a skill. Works in any harness with a shell.
 
 ## Version 0.1
 
-The first release walks independent flows: `start`, `current`, `next`, `abort`, `runs`.
+The first release walks independent flows: `start`, `current`, `next`, `rm`, `runs`.
 No checks, no hooks, no tracker. This section is the contract; code follows it, not a chat.
 
 ### Flow
@@ -156,7 +156,7 @@ A refused flow says what is wrong and, when there is a step or a key, names it.
   and finished runs are retained, unchanged. Finishing a run does not delete it.
 - A selected run file that cannot be read or has an unknown `version` is an error for `current`
   and `next`. `runs` also reports unreadable or invalid run files instead of silently hiding them.
-  `abort` can delete a file without parsing it. An unrelated damaged run does not block `start`.
+  `rm` can delete a file without parsing it. An unrelated damaged run does not block `start`.
 - A step visited again replaces its outcome; an instruction sees the latest one.
 - Surviving `git clean` is out of 0.1 — see Open questions.
 
@@ -167,7 +167,7 @@ A refused flow says what is wrong and, when there is a step or a key, names it.
 | `stepan start <flow> <task>`             | creates a run, prints the graph, run ID and first instruction   |
 | `stepan current <run-id>`                | prints the selected run's current instruction from its snapshot |
 | `stepan next <run-id> --<field> <value>` | takes the selected run's current outcome and moves on           |
-| `stepan abort <run-id>`                  | deletes the selected run                                        |
+| `stepan rm <run-id>`                     | deletes the selected run                                        |
 | `stepan runs`                            | lists active runs                                               |
 | `stepan runs --all`                      | lists active and retained finished runs                         |
 
@@ -176,7 +176,7 @@ A refused flow says what is wrong and, when there is a step or a key, names it.
   Stepan does not resolve it against a tracker.
 - **Graph overview** — a line per step: the step, each transition with the value that selects it,
   and `(final)` for a step without transitions.
-- **Run selection** — `current`, `next` and `abort` require a valid run ID; omission or an invalid
+- **Run selection** — `current`, `next` and `rm` require a valid run ID; omission or an invalid
   ID is a usage error. They never guess a run from its task, flow, recency or harness session.
 - **`current`** — how a session resumes after a restart or a compaction: the same step from
   the selected run's snapshot, placeholders filled. Use `runs` to recover a forgotten ID.
@@ -198,7 +198,7 @@ A refused flow says what is wrong and, when there is a step or a key, names it.
   After the run ID, `help`, `h` and `version` are ordinary outcome field names, not reserved
   options. An unreadable run or a finished run is reported before parsing
   outcome flags; otherwise malformed flags are usage errors.
-- **`abort`** — deletes the selected active or finished run, including damaged JSON or an unknown
+- **`rm`** — deletes the selected active or finished run, including damaged JSON or an unknown
   version; reports `Run <run-id> deleted.`. A missing run is an error. Other runs are unchanged.
   Deleted runs do not appear in either listing.
 - **`runs`** — prints ID, flow, task, current step and status (`active` or `finished`), sorted by

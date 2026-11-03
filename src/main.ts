@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { loadFlow, type Step } from './flow.js';
 import { graphOverview, runsOutput, stepOutput } from './output.js';
-import { abortRun, listRuns, loadRun, saveStart, updateRun, validateRunId } from './run-store.js';
+import { removeRun, listRuns, loadRun, saveStart, updateRun, validateRunId } from './run-store.js';
 import { advanceRun, currentStep } from './run.js';
 import { writeRoot } from './write-root.js';
 
@@ -17,7 +17,7 @@ Commands:
   start <flow> <task>  validate a flow and start a run
   current <run-id>      print the current step from the snapshot
   next <run-id> [--<field> <value>...]  report an outcome and advance the run
-  abort <run-id>        delete a run
+  rm <run-id>           delete a run
   runs [--all]          list active runs, or include finished runs
 
 Options:
@@ -28,7 +28,7 @@ Options:
 const START_USAGE = 'Usage: stepan start <flow> <task>\n';
 const CURRENT_USAGE = 'Usage: stepan current <run-id>\n';
 const NEXT_USAGE = 'Usage: stepan next <run-id> [--<field> <value>...]\n';
-const ABORT_USAGE = 'Usage: stepan abort <run-id>\n';
+const RM_USAGE = 'Usage: stepan rm <run-id>\n';
 const RUNS_USAGE = 'Usage: stepan runs [--all]\n';
 
 class UsageError extends Error {}
@@ -50,7 +50,7 @@ export function run(argv: readonly string[], out: Output): number {
   if (first === 'start') return start(argv.slice(1), out);
   if (first === 'current') return current(argv.slice(1), out);
   if (first === 'next') return next(argv.slice(1), out);
-  if (first === 'abort') return current(argv.slice(1), out, true);
+  if (first === 'rm') return current(argv.slice(1), out, true);
   if (first === 'runs') return runs(argv.slice(1), out);
 
   out.stderr(`stepan: unknown command '${first}'\n\n${USAGE}`);
@@ -96,8 +96,8 @@ function start(argv: readonly string[], out: Output): number {
   }
 }
 
-function current(argv: readonly string[], out: Output, abort = false): number {
-  const usage = abort ? ABORT_USAGE : CURRENT_USAGE;
+function current(argv: readonly string[], out: Output, remove = false): number {
+  const usage = remove ? RM_USAGE : CURRENT_USAGE;
   let id: string;
   try {
     const args = parseArgs({
@@ -123,8 +123,8 @@ function current(argv: readonly string[], out: Output, abort = false): number {
   }
   try {
     const root = writeRoot(process.cwd());
-    if (abort) {
-      abortRun(root, id);
+    if (remove) {
+      removeRun(root, id);
       out.stdout(`Run ${id} deleted.\n`);
       return 0;
     }

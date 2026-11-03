@@ -52,7 +52,7 @@ beforeEach(() => {
   vi.spyOn(roots, 'writeRoot').mockReturnValue('isolated-root');
   vi.spyOn(store, 'loadRun').mockReturnValue(state);
   vi.spyOn(store, 'updateRun').mockImplementation((_root, _id, update) => update(state));
-  vi.spyOn(store, 'abortRun').mockImplementation(() => undefined);
+  vi.spyOn(store, 'removeRun').mockImplementation(() => undefined);
   vi.spyOn(store, 'listRuns').mockReturnValue([]);
 });
 afterEach(() => vi.restoreAllMocks());
@@ -61,11 +61,14 @@ describe('run', () => {
   it('prints usage, version and unknown-command errors', () => {
     expect(capture([])).toMatchObject({ code: 0, stderr: '' });
     expect(capture([]).stdout).toContain('next <run-id>');
+    expect(capture([]).stdout).toContain('rm <run-id>');
+    expect(capture([]).stdout).not.toContain('abort');
     expect(capture(['--version']).stdout).toMatch(/^\d+\.\d+\.\d+/);
     expect(capture(['unknown'])).toMatchObject({ code: 2, stdout: '' });
+    expect(capture(['abort', ID])).toMatchObject({ code: 2, stdout: '' });
   });
 
-  it.each(['start', 'current', 'next', 'abort', 'runs'])(
+  it.each(['start', 'current', 'next', 'rm', 'runs'])(
     'prints standalone help for %s without I/O',
     (command) => {
       for (const flag of ['-h', '--help']) {
@@ -87,9 +90,9 @@ describe('run', () => {
     ['current', ID, 'extra'],
     ['current', '--help', ID],
     ['current', '-hh'],
-    ['abort'],
-    ['abort', ID, '--unknown'],
-    ['abort', '--help', '-h'],
+    ['rm'],
+    ['rm', ID, '--unknown'],
+    ['rm', '--help', '-h'],
     ['next'],
     ['next', 'review'],
     ['next', '../outside'],
@@ -210,8 +213,8 @@ describe('state commands', () => {
   });
 
   it('deletes a named run without loading or validating its state', () => {
-    expect(capture(['abort', ID])).toEqual({ code: 0, stdout: `Run ${ID} deleted.\n`, stderr: '' });
-    expect(store.abortRun).toHaveBeenCalledWith('isolated-root', ID);
+    expect(capture(['rm', ID])).toEqual({ code: 0, stdout: `Run ${ID} deleted.\n`, stderr: '' });
+    expect(store.removeRun).toHaveBeenCalledWith('isolated-root', ID);
     expect(store.loadRun).not.toHaveBeenCalled();
   });
 
@@ -225,7 +228,7 @@ describe('state commands', () => {
   it.each([
     { args: ['current', ID], method: 'loadRun' },
     { args: ['next', ID], method: 'updateRun' },
-    { args: ['abort', ID], method: 'abortRun' },
+    { args: ['rm', ID], method: 'removeRun' },
     { args: ['runs'], method: 'listRuns' },
   ] as const)('prints no success output when $method fails', ({ args, method }) => {
     vi.mocked(store[method]).mockImplementation(() => {

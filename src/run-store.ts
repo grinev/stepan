@@ -93,7 +93,7 @@ function withRunLock<T>(root: string, id: string, action: () => T): T {
     if (missing(error)) throw new Error(`No run found: ${path}`, { cause: error });
     if (error instanceof Error && 'code' in error && error.code === 'EEXIST') {
       throw new Error(
-        `Another command holds ${lock}. If a writer crashed, confirm no next or abort for this run is running before removing the lock.`,
+        `Another command holds ${lock}. If a writer crashed, confirm no next or rm for this run is running before removing the lock.`,
         { cause: error },
       );
     }
@@ -140,7 +140,7 @@ export function updateRun(root: string, id: string, update: (run: RunState) => R
   });
 }
 
-export function abortRun(root: string, id: string): void {
+export function removeRun(root: string, id: string): void {
   validateRunId(id);
   withRunLock(root, id, () => {
     const path = runPath(root, id);

@@ -63,14 +63,14 @@ hex characters generated with `node:crypto.randomBytes(4)` and are validated bef
 the stored ID must match the filename. The file also stores `flowName` for listing, in addition
 to the task, step, finished flag, flow snapshot and outcomes. Every `start` creates a new run with
 exclusive creation (`wx`); a collision generates another ID, up to ten attempts, without replacing
-existing files. Finished runs are retained until explicitly deleted with `abort`.
+existing files. Finished runs are retained until explicitly deleted with `rm`.
 
-`next` and `abort` take an exclusive `<write root>/.stepan/runs/<run-id>.lock`. Different runs
+`next` and `rm` take an exclusive `<write root>/.stepan/runs/<run-id>.lock`. Different runs
 do not share a lock. `next` reads the actual state, parses dynamic outcome flags against that
 state's current step, validates the outcome and writes the transition under the same lock.
 The store accepts a callback over current state; CLI parsing stays in `main`, not in the core.
 There is no preliminary snapshot read or externally supplied step argument.
-`abort` unlinks the selected file without parsing it, allowing damaged runs to be removed.
+`rm` unlinks the selected file without parsing it, allowing damaged runs to be removed.
 `current` and `runs` only read and do not acquire locks or create directories.
 
 `runs` reads and validates run files, sorts by ID and filters finished runs unless `--all` is
@@ -81,7 +81,7 @@ parallel sessions operate on each other's state. A run is normally driven by one
 is state isolation, not working-tree isolation or a binding to a specific harness.
 
 The lock is released on ordinary success or failure. If a process crashes and leaves it behind,
-confirm no `next` or `abort` for that run is running before manually removing it; Stepan does not guess whether
+confirm no `next` or `rm` for that run is running before manually removing it; Stepan does not guess whether
 it is stale. Writes are synchronous JSON writes, not atomic replacements: this is not crash
 recovery for an interrupted state-file write, and a failure during the write can leave unreadable
 state. Harness configuration and hooks are not implemented yet.

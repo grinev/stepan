@@ -2,7 +2,7 @@
 
 **CLI for agent workflows.** The agent pulls the next step; Stepan holds the flow.
 
-> **Status: early development.** `start`, `current`, `next`, `abort`, `runs`, independent run IDs
+> **Status: early development.** `start`, `current`, `next`, `rm`, `runs`, independent run IDs
 > and instruction placeholder substitution are implemented. Checks and hooks are not implemented yet.
 
 Coding agents follow a workflow written as prose: one long instruction loaded at the start of a
@@ -18,7 +18,7 @@ stepan next a7c93f2b --plan "docs/plan.md"    # report the current outcome, get 
 stepan current a7c93f2b                     # repeat the current instruction
 stepan runs                                # recover IDs of active runs
 stepan runs --all                          # include finished runs
-stepan abort a7c93f2b                      # delete this run only
+stepan rm a7c93f2b                         # delete this run only
 ```
 
 The flow is YAML plus one Markdown file per step. Stepan validates each reported outcome and
@@ -35,7 +35,7 @@ format is specified in [PRODUCT.md](./PRODUCT.md#flow). Then run:
 stepan start <name> <task>
 stepan current <run-id>
 stepan next <run-id> --<field> <value>
-stepan abort <run-id>
+stepan rm <run-id>
 stepan runs [--all]
 ```
 
@@ -83,7 +83,7 @@ step's new outcome supplies the values for subsequent output.
 
 `runs` lists ID, flow, task, current step and status, sorted by ID; `--all` includes retained
 finished runs. Cells are tab-separated and JSON-quoted, keeping multiline tasks on one row.
-Empty lists succeed. `abort <run-id>` deletes an active, finished or damaged run; a missing run
+Empty lists succeed. `rm <run-id>` deletes an active, finished or damaged run; a missing run
 is an error. Deleted runs disappear from both lists. Commands never implicitly select the latest
 run, so parallel sessions cannot accidentally advance each other's state.
 

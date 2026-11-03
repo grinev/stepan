@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { validateFlow } from './flow.js';
 import {
-  abortRun,
+  removeRun,
   listRuns,
   loadRun,
   saveStart,
@@ -144,7 +144,7 @@ describe('addressed storage', () => {
       expect(() => loadRun(directory, id)).toThrow('hex');
       expect(() => updateRun(directory, id, (run) => run)).toThrow('hex');
       expect(() => {
-        abortRun(directory, id);
+        removeRun(directory, id);
       }).toThrow('hex');
       expect(readdirSync(directory)).toEqual([]);
     },
@@ -208,7 +208,7 @@ describe('addressed storage', () => {
       () => loadRun(directory, ID),
       () => updateRun(directory, ID, (run) => run),
       () => {
-        abortRun(directory, ID);
+        removeRun(directory, ID);
       },
     ]) {
       expect(action).toThrow('No run found');
@@ -218,7 +218,7 @@ describe('addressed storage', () => {
     mkdirSync(join(directory, '.stepan/runs'), { recursive: true });
     expect(() => updateRun(directory, ID, (run) => run)).toThrow('No run found');
     expect(() => {
-      abortRun(directory, ID);
+      removeRun(directory, ID);
     }).toThrow('No run found');
     expect(readdirSync(join(directory, '.stepan/runs'))).toEqual([]);
   });
@@ -236,7 +236,7 @@ describe('addressed storage', () => {
     expect(() => listRuns(directory)).toThrow(path(directory));
     expect(readFileSync(path(directory), 'utf8')).toBe(text);
     expect(existsSync(lock(directory))).toBe(false);
-    abortRun(directory, ID);
+    removeRun(directory, ID);
     expect(existsSync(path(directory))).toBe(false);
   });
 
@@ -246,7 +246,7 @@ describe('addressed storage', () => {
     expect(() => loadRun(directory, ID)).toThrow(path(directory));
     expect(() => updateRun(directory, ID, (run) => run)).toThrow(path(directory));
     expect(() => {
-      abortRun(directory, ID);
+      removeRun(directory, ID);
     }).toThrow();
     expect(readdirSync(path(directory))).toEqual([]);
     expect(existsSync(lock(directory))).toBe(false);
@@ -297,12 +297,12 @@ describe('addressed storage', () => {
     expect(readdirSync(join(directory, '.stepan/runs'))).toEqual([`${ID}.json`]);
   });
 
-  it.each([false, true])('aborts a selected run (finished=%s)', (finished) => {
+  it.each([false, true])('removes a selected run (finished=%s)', (finished) => {
     const directory = root();
     put(directory, JSON.stringify({ ...state(), finished }));
     const other = saveStart(directory, flow, 'feature', 'other');
     const before = readFileSync(path(directory, other.id), 'utf8');
-    abortRun(directory, ID);
+    removeRun(directory, ID);
     expect(existsSync(path(directory))).toBe(false);
     expect(readFileSync(path(directory, other.id), 'utf8')).toBe(before);
     expect(existsSync(lock(directory))).toBe(false);
@@ -353,11 +353,11 @@ describe('locked updates', () => {
     updateRun(directory, ID, (run) => {
       expect(() => updateRun(directory, ID, (value) => value)).toThrow('Another command');
       expect(() => {
-        abortRun(directory, ID);
+        removeRun(directory, ID);
       }).toThrow('Another command');
       expect(existsSync(lock(directory))).toBe(true);
       updateRun(directory, other.id, (value) => advanceRun(value, {}));
-      abortRun(directory, other.id);
+      removeRun(directory, other.id);
       expect(saveStart(directory, flow, 'feature', 'new').id).not.toBe(ID);
       return advanceRun(run, {});
     });
@@ -388,7 +388,7 @@ describe('locked updates', () => {
     writeFileSync(lock(directory), 'busy');
     expect(() => updateRun(directory, ID, (run) => run)).toThrow('Another command');
     expect(() => {
-      abortRun(directory, ID);
+      removeRun(directory, ID);
     }).toThrow('Another command');
     expect(readFileSync(lock(directory), 'utf8')).toBe('busy');
     expect(loadBytes(directory)).toBe(before);

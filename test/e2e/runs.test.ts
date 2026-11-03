@@ -28,6 +28,20 @@ steps:
 }
 
 describe('independent runs', () => {
+  it('advertises rm and rejects the old abort command without deleting a run', () => {
+    const cli = fixture();
+    const run = startCli(cli, 'task');
+    const original = readFileSync(run.runPath, 'utf8');
+    const help = runCli(['--help'], cli);
+    expect(help).toMatchObject({ code: 0, stderr: '' });
+    expect(help.stdout).toContain('rm <run-id>');
+    expect(help.stdout).not.toContain('abort');
+    const rejected = runCli(['abort', run.id], cli);
+    expect(rejected).toMatchObject({ code: 2, stdout: '' });
+    expect(rejected.stderr).toContain("unknown command 'abort'");
+    expect(readFileSync(run.runPath, 'utf8')).toBe(original);
+  });
+
   it.each(['installed', 'sources'] as const)(
     'advances, lists and deletes selected %s runs only',
     (layout) => {
@@ -64,7 +78,7 @@ describe('independent runs', () => {
       expect(all.stdout).toContain(second.id);
       expect(all.stdout).toContain(third.id);
 
-      expect(runCli(['abort', first.id], cli)).toMatchObject({
+      expect(runCli(['rm', first.id], cli)).toMatchObject({
         code: 0,
         stdout: `Run ${first.id} deleted.\n`,
         stderr: '',
@@ -73,23 +87,23 @@ describe('independent runs', () => {
       expect(runCli(['runs', '--all'], cli).stdout).not.toContain(first.id);
       expect(runCli(['current', first.id], cli)).toMatchObject({ code: 1, stdout: '' });
       expect(readFileSync(second.runPath, 'utf8')).toBe(untouched);
-      expect(runCli(['abort', third.id], cli).code).toBe(0);
-      expect(runCli(['abort', second.id], cli).code).toBe(0);
+      expect(runCli(['rm', third.id], cli).code).toBe(0);
+      expect(runCli(['rm', second.id], cli).code).toBe(0);
       expect(runCli(['runs'], cli)).toMatchObject({ code: 0, stdout: 'No active runs.\n' });
       expect(runCli(['runs', '--all'], cli)).toMatchObject({ code: 0, stdout: 'No runs.\n' });
       expect(readdirSync(cli.runsDirectory)).toEqual([]);
-      expect(runCli(['abort', first.id], cli).code).toBe(1);
+      expect(runCli(['rm', first.id], cli).code).toBe(1);
     },
   );
 
-  it('a held lock does not prevent another run from advancing, aborting or starting', () => {
+  it('a held lock does not prevent advancing, removing or starting another run', () => {
     const cli = fixture();
     const first = startCli(cli, 'one');
     const second = startCli(cli, 'two');
     const before = readFileSync(first.runPath, 'utf8');
     const lock = join(cli.runsDirectory, `${first.id}.lock`);
     writeFileSync(lock, 'busy');
-    for (const command of ['next', 'abort']) {
+    for (const command of ['next', 'rm']) {
       const result = runCli([command, first.id], cli);
       expect(result).toMatchObject({ code: 1, stdout: '' });
       expect(result.stderr).toContain(lock);
@@ -97,7 +111,7 @@ describe('independent runs', () => {
     expect(runCli(['current', first.id], cli).code).toBe(0);
     expect(runCli(['runs'], cli).code).toBe(0);
     expect(runCli(['next', second.id], cli).code).toBe(0);
-    expect(runCli(['abort', second.id], cli).code).toBe(0);
+    expect(runCli(['rm', second.id], cli).code).toBe(0);
     expect(runId(runCli(['start', 'feature', 'three'], cli))).toMatch(/^[0-9a-f]{8}$/);
     expect(readFileSync(first.runPath, 'utf8')).toBe(before);
     expect(readFileSync(lock, 'utf8')).toBe('busy');
@@ -115,7 +129,7 @@ describe('independent runs', () => {
   });
 });
 
-describe('abort and listing errors', () => {
+describe('rm and listing errors', () => {
   it.each(['installed', 'sources'] as const)(
     'reports invalid %s run filenames without changing existing state',
     (layout) => {
@@ -152,7 +166,7 @@ describe('abort and listing errors', () => {
   );
 
   it.each(['{broken', '{"version":99}'])(
-    'reports damaged runs in the list and lets abort remove them (%#)',
+    'reports damaged runs in the list and lets rm remove them (%#)',
     (text) => {
       const cli = fixture();
       const run = startCli(cli, 'damaged');
@@ -163,7 +177,7 @@ describe('abort and listing errors', () => {
         expect(result.stderr).toContain(run.runPath);
         expect(readFileSync(run.runPath, 'utf8')).toBe(text);
       }
-      expect(runCli(['abort', run.id], cli)).toMatchObject({
+      expect(runCli(['rm', run.id], cli)).toMatchObject({
         code: 0,
         stdout: `Run ${run.id} deleted.\n`,
       });
@@ -173,10 +187,10 @@ describe('abort and listing errors', () => {
   );
 
   it.each(['installed', 'sources'] as const)(
-    'does not create missing %s state for reads or abort',
+    'does not create missing %s state for reads or rm',
     (layout) => {
       const cli = createCli(layout);
-      expect(runCli(['abort', ID], cli)).toMatchObject({ code: 1, stdout: '' });
+      expect(runCli(['rm', ID], cli)).toMatchObject({ code: 1, stdout: '' });
       expect(runCli(['runs'], cli)).toMatchObject({ code: 0, stdout: 'No active runs.\n' });
       expect(runCli(['runs', '--all'], cli)).toMatchObject({ code: 0, stdout: 'No runs.\n' });
       expect(existsSync(join(cli.root, '.stepan'))).toBe(false);
@@ -184,13 +198,13 @@ describe('abort and listing errors', () => {
   );
 
   it.each([
-    ['abort'],
-    ['abort', 'ABCDEF12'],
-    ['abort', '../outside'],
-    ['abort', ID, 'extra'],
-    ['abort', '--help', ID],
-    ['abort', ID, '--unknown'],
-    ['abort', '--help', '-h'],
+    ['rm'],
+    ['rm', 'ABCDEF12'],
+    ['rm', '../outside'],
+    ['rm', ID, 'extra'],
+    ['rm', '--help', ID],
+    ['rm', ID, '--unknown'],
+    ['rm', '--help', '-h'],
     ['runs', 'extra'],
     ['runs', '--all', '--all'],
     ['runs', '--unknown'],
@@ -208,7 +222,7 @@ describe('abort and listing errors', () => {
     const path = runPath(cli, ID);
     mkdirSync(path, { recursive: true });
     writeFileSync(join(path, 'keep'), 'keep');
-    expect(runCli(['abort', ID], cli)).toMatchObject({ code: 1, stdout: '' });
+    expect(runCli(['rm', ID], cli)).toMatchObject({ code: 1, stdout: '' });
     expect(readFileSync(join(path, 'keep'), 'utf8')).toBe('keep');
     expect(readdirSync(cli.runsDirectory)).toEqual([`${ID}.json`]);
   });
