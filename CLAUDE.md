@@ -8,8 +8,8 @@ as `@grinev/stepan`. What it is and how it behaves — [PRODUCT.md](./PRODUCT.md
 any non-trivial change. Early development: most of PRODUCT.md is not built yet, do not take it
 for existing behaviour.
 
-**Language.** Reply in the language the user wrote in. Everything committed — code, comments,
-docs, commit messages, CLI output — is English.
+**Language.** Reply and write plans in the language the user wrote in. Everything committed —
+code, comments, docs, commit messages, CLI output — is English.
 
 ## Stack
 
@@ -54,11 +54,13 @@ Read what applies **before** the work it concerns.
   decisions, implementation, and verification. Goal and scope define the result and boundaries;
   decisions explain the chosen approach; implementation describes code and documentation changes;
   verification describes tests and acceptance checks. Keep all plan content within these sections.
-- **Plan updates.** Update the relevant sections in the same file when accepted review feedback,
-  implementation discoveries or user decisions change the scope, behaviour, approach or
-  verification. Make the update when the decision is adopted, so the plan describes the current
-  agreed solution and how to verify it. After code review, update the plan when addressing findings
-  changes that solution or its verification.
+- **Plan purpose and updates.** The plan describes the current agreed solution: what changes, why,
+  and how to verify it. During implementation, update the same file when the solution itself or
+  its verification changes, replacing the outdated description. Report work progress and actual
+  results in the session; save full verification output to the log files prescribed by the workflow.
+- **Plan and execution context.** The plan describes the solution independently of the session and
+  execution workflow, so it remains usable in another session or workflow. User permissions, the
+  current work phase and review sequencing belong in the session or workflow instructions.
 - **Subagents are regular steps of the loop; call them yourself, without asking.** The permission
   is given here and always holds:
   - `plan-reviewer` — after the plan is written, before code. No code until the plan review has
