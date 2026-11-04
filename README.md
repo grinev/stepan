@@ -96,6 +96,31 @@ Installed packages save `.stepan/runs/<run-id>.json` in the working directory. F
 `node dist/cli.js current <run-id>` reads that same source-mode state.
 `node dist/cli.js next <run-id> --<field> <value>` advances it.
 
+## Try the example
+
+This repository includes a three-step flow in [`.stepan/flows/example/`](./.stepan/flows/example/):
+`implement -> review -> finish`, with a failed review looping back to `implement`.
+It passes `{{task}}`, the latest implementation summary and review findings between instructions.
+Copy that directory to `.stepan/flows/example/` in your project, then use an installed Stepan:
+
+```sh
+stepan start example TASK-12
+# Use the run ID returned by start in every command below.
+stepan next <run-id> --summary "First implementation."
+stepan next <run-id> --verdict fail --findings "Add a regression test."
+stepan next <run-id> --summary "Implementation with a regression test."
+stepan next <run-id> --verdict pass
+stepan next <run-id>                         # report the final step and finish the run
+stepan current <run-id>                      # reports that the run is finished
+stepan runs --all                            # finished runs are retained
+```
+
+The reported values above illustrate the graph, not proof that any work was done. In a real
+run, follow each instruction and report its actual outcome. Use `stepan current <run-id>` to
+resume at any point; use `stepan runs` if you have forgotten an active run's ID.
+From a source checkout, the same example works with `node dist/cli.js` in place of `stepan`
+after `npm run build`; its state stays in `.dev-data/`.
+
 What Stepan is meant to become: [PRODUCT.md](./PRODUCT.md).
 
 ## Development

@@ -1,0 +1,26 @@
+start: implement
+steps:
+  implement:
+    instruction: implement.md
+    outcome:
+      summary:
+        type: string
+        required: true
+    transitions:
+      - to: review
+  review:
+    instruction: review.md
+    outcome:
+      verdict:
+        type: enum
+        values: [pass, fail]
+        required: true
+      findings:
+        type: string
+    transitions:
+      - when: { verdict: fail }
+        to: implement
+      - when: { verdict: pass }
+        to: finish
+  finish:
+    instruction: finish.md
