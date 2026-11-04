@@ -57,6 +57,8 @@ are not published (the package includes only `dist/` and package metadata). The 
 is always the checkout's `.dev-data/`, even when the command's working directory is elsewhere;
 installed packages use the working directory. Flow input is always read from
 `<working directory>/.stepan/flows/<name>/`, in both modes, independently of the write root.
+An instruction path such as `steps/<file>.md` is relative to that flow directory; Stepan does not
+search for it elsewhere.
 Every later write location must use this same resolver.
 
 Definitions and state share `.stepan/` to avoid reserving a generic top-level `flows/` directory.

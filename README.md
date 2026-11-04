@@ -28,8 +28,8 @@ your task tracker: tracker commands will be declared in the flow, not built into
 
 ## Available now
 
-Put `flow.yaml` and the Markdown instructions in `.stepan/flows/<name>/` in your working directory; the
-format is specified in [PRODUCT.md](./PRODUCT.md#flow). Then run:
+Put `flow.yaml` in `.stepan/flows/<name>/` and the Markdown instructions in its `steps/` directory.
+The format is specified in [PRODUCT.md](./PRODUCT.md#flow). Then run:
 
 ```sh
 stepan start <name> <task>

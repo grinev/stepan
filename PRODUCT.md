@@ -43,14 +43,17 @@ A flow is a directory `.stepan/flows/<name>/` with `flow.yaml` and one Markdown 
 ```
 .stepan/flows/feature/
   flow.yaml
-  plan.md
-  implement.md
-  review.md
-  finish.md
+  steps/
+    plan.md
+    implement.md
+    review.md
+    finish.md
 ```
 
-`stepan start feature <task>` reads `.stepan/flows/feature/flow.yaml`; instruction paths are relative to
-that directory.
+`flow.yaml` stays in the flow root so the definition is the one file there. Instructions live in
+`steps/` rather than beside it: a flow has many of them, and the root should not mix the graph
+with step text. `stepan start feature <task>` reads `.stepan/flows/feature/flow.yaml`; instruction
+paths such as `steps/plan.md` are relative to that directory, with no separate lookup.
 
 Flow definitions and run state share `.stepan/` so Stepan does not reserve a generic top-level
 `flows/` directory. Commit `.stepan/flows/`; add only `.stepan/runs/` to `.gitignore`, not all of
@@ -61,7 +64,7 @@ to a top-level `flows/` directory.
 start: plan
 steps:
   plan:
-    instruction: plan.md
+    instruction: steps/plan.md
     outcome:
       plan:
         type: string
@@ -70,7 +73,7 @@ steps:
       - to: implement
 
   implement:
-    instruction: implement.md
+    instruction: steps/implement.md
     outcome:
       summary:
         type: string
@@ -78,7 +81,7 @@ steps:
       - to: review
 
   review:
-    instruction: review.md
+    instruction: steps/review.md
     outcome:
       verdict:
         type: enum
@@ -93,7 +96,7 @@ steps:
         to: finish
 
   finish:
-    instruction: finish.md
+    instruction: steps/finish.md
 ```
 
 `review` reports `verdict: pass` when the change is accepted and `verdict: fail` with `findings`

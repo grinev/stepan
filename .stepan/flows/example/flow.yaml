@@ -1,7 +1,7 @@
 start: implement
 steps:
   implement:
-    instruction: implement.md
+    instruction: steps/implement.md
     outcome:
       summary:
         type: string
@@ -9,7 +9,7 @@ steps:
     transitions:
       - to: review
   review:
-    instruction: review.md
+    instruction: steps/review.md
     outcome:
       verdict:
         type: enum
@@ -23,4 +23,4 @@ steps:
       - when: { verdict: pass }
         to: finish
   finish:
-    instruction: finish.md
+    instruction: steps/finish.md

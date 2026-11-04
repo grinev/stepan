@@ -7,18 +7,33 @@ import { createCli, runCli, runId } from './run-cli.js';
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const EXAMPLE = join(ROOT, '.stepan/flows/example');
 
+function markdownBesideFlow(directory: string): string[] {
+  return readdirSync(directory).filter((name) => name.endsWith('.md'));
+}
+
 describe('repository example', () => {
+  it('keeps flow.yaml at the example root and instructions in steps/', () => {
+    expect(readdirSync(EXAMPLE)).toContain('flow.yaml');
+    expect(readdirSync(join(EXAMPLE, 'steps'))).toEqual(
+      expect.arrayContaining(['implement.md', 'review.md', 'finish.md']),
+    );
+    expect(markdownBesideFlow(EXAMPLE)).toEqual([]);
+  });
+
   it.each(['installed', 'sources'] as const)(
     'walks the shipped example through review rework and completion in %s mode',
     (layout) => {
       const cli = createCli(layout);
       const directory = join(cli.cwd, '.stepan/flows/example');
-      mkdirSync(directory, { recursive: true });
+      const steps = join(directory, 'steps');
+      mkdirSync(steps, { recursive: true });
       // Node 22's native recursive cpSync corrupts non-ASCII destination paths on Windows.
-      for (const file of readdirSync(EXAMPLE)) {
-        copyFileSync(join(EXAMPLE, file), join(directory, file));
+      copyFileSync(join(EXAMPLE, 'flow.yaml'), join(directory, 'flow.yaml'));
+      for (const file of readdirSync(join(EXAMPLE, 'steps'))) {
+        copyFileSync(join(EXAMPLE, 'steps', file), join(steps, file));
       }
       expect(readdirSync(directory)).toContain('flow.yaml');
+      expect(markdownBesideFlow(directory)).toEqual([]);
 
       const started = runCli(['start', 'example', 'TASK-12'], cli);
       const id = runId(started);
