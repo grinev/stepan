@@ -72,15 +72,52 @@ function current(cli: Fixture, stdout: string): void {
   expect(readFileSync(cli.runPath, 'utf8')).toBe(before);
 }
 
-function planOutput(path = '{{steps.plan.outcome.path}}'): string {
+function planOutput(path = '-'): string {
   return `Run: RUN-ID\nStep: plan\n\nPlan ${TASK}. Previous: ${path}.\n\nstepan next RUN-ID --path "<text>" [--note "<text>"]\n`;
 }
 
-function reviewOutput(path: string, note = '{{steps.plan.outcome.note}}'): string {
+function reviewOutput(path: string, note = '-'): string {
   return `Run: RUN-ID\nStep: review\n\nReview ${TASK}: ${path}.\nNote: ${note}.\n\nstepan next RUN-ID --verdict <pass|fail>\n`;
 }
 
 describe('instruction placeholders', () => {
+  it.each(['installed', 'sources'] as const)(
+    'restores reviewer and report on revisits in %s mode',
+    (layout) => {
+      const instruction =
+        'Reviewer: {{steps.review.outcome.reviewer}}\nReport: [{{steps.review.outcome.report}}]\n';
+      const cli = fixture(
+        `start: review
+steps:
+  review:
+    instruction: review.md
+    outcome:
+      reviewer: {type: string, required: true}
+      report: {type: string}
+    transitions:
+      - to: review
+`,
+        { review: instruction },
+        layout,
+      );
+      const output = (reviewer: string, report: string): string =>
+        `Run: RUN-ID\nStep: review\n\nReviewer: ${reviewer}\nReport: [${report}]\n\nstepan next RUN-ID --reviewer "<text>" [--report "<text>"]\n`;
+      success(cli, ['start', 'feature', TASK], output('-', '-'));
+      current(cli, output('-', '-'));
+      expect(readRun(cli).flow.steps.review?.instruction).toBe(instruction);
+      success(
+        cli,
+        ['next', cli.id, '--reviewer', 'ses_123', '--report', 'report.md'],
+        output('ses_123', 'report.md'),
+      );
+      current(cli, output('ses_123', 'report.md'));
+      success(cli, ['next', cli.id, '--reviewer', 'ses_123'], output('ses_123', '-'));
+      success(cli, ['next', cli.id, '--reviewer', 'ses_123', '--report='], output('ses_123', ''));
+      current(cli, output('ses_123', ''));
+      expect(readRun(cli).flow.steps.review?.instruction).toBe(instruction);
+    },
+  );
+
   it.each(['installed', 'sources'] as const)(
     'renders task and latest outcomes from the unchanged %s snapshot',
     (layout) => {
@@ -133,9 +170,9 @@ describe('instruction placeholders', () => {
     },
   );
 
-  it('inserts literal multiline data and empty strings once while leaving unknown references intact', () => {
+  it('inserts literal multiline data and empty strings once while marking missing outcomes', () => {
     const instruction =
-      'Task: {{task}}\nValue: {{steps.loop.outcome.value}}\nEmpty: [{{steps.loop.outcome.empty}}]\nUnknown: {{unknown}} / {{steps.missing.outcome.value}} / {{steps.loop.outcome.absent}}\n';
+      'Task: {{task}}\nValue: {{steps.loop.outcome.value}}\nEmpty: [{{steps.loop.outcome.empty}}]\nUnknown: {{unknown}} / {{steps.missing.outcome.value}} / {{steps.loop.outcome.absent}} / {{{steps.missing.outcome.value}}} / {{unknown {{steps.missing.outcome.value}} }}\nExample `{{task`\nCurrent: {{task}}\nJSON: {"value":{{steps.loop.outcome.value}}}\n';
     const cli = fixture(
       `start: loop
 steps:
@@ -152,14 +189,14 @@ steps:
     const task = '{{steps.loop.outcome.value}} $& $1 $$ \\ "задача"';
     const value = '{{task}} $& $1 $$ \\ "план"\nsecond line';
     const exit = 'stepan next RUN-ID --value "<text>" [--empty "<text>"]\n';
-    const unknown =
-      'Unknown: {{unknown}} / {{steps.missing.outcome.value}} / {{steps.loop.outcome.absent}}\n';
+    const extra = (value: string): string =>
+      `Unknown: {{unknown}} / - / - / {{{steps.missing.outcome.value}}} / {{unknown {{steps.missing.outcome.value}} }}\nExample \`{{task\`\nCurrent: ${task}\nJSON: {"value":${value}}\n`;
     success(
       cli,
       ['start', 'feature', task],
-      `Run: RUN-ID\nStep: loop\n\nTask: ${task}\nValue: {{steps.loop.outcome.value}}\nEmpty: [{{steps.loop.outcome.empty}}]\n${unknown}\n${exit}`,
+      `Run: RUN-ID\nStep: loop\n\nTask: ${task}\nValue: -\nEmpty: [-]\n${extra('-')}\n${exit}`,
     );
-    const output = `Run: RUN-ID\nStep: loop\n\nTask: ${task}\nValue: ${value}\nEmpty: []\n${unknown}\n${exit}`;
+    const output = `Run: RUN-ID\nStep: loop\n\nTask: ${task}\nValue: ${value}\nEmpty: []\n${extra(value)}\n${exit}`;
     success(cli, ['next', cli.id, '--value', value, '--empty='], output);
     current(cli, output);
     expect(readRun(cli).outcomes.loop).toEqual({ value, empty: '' });
@@ -189,7 +226,7 @@ steps:
     success(
       cli,
       ['start', 'feature', 'TASK-5'],
-      `Run: RUN-ID\nStep: choose\n\nTask TASK-5; last {{steps.choose.outcome.verdict}}.\n\n${exit}`,
+      `Run: RUN-ID\nStep: choose\n\nTask TASK-5; last -.\n\n${exit}`,
     );
     const output = `Run: RUN-ID\nStep: choose\n\nTask TASK-5; last {{task}}.\n\n${exit}`;
     success(cli, ['next', cli.id, '--verdict', '{{task}}'], output);

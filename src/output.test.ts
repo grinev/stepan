@@ -72,23 +72,56 @@ describe('output', () => {
 
   it.each([
     '{{unknown}}',
-    '{{steps.missing.outcome.path}}',
-    '{{steps.plan.outcome.missing}}',
     '{{steps.plan.path}}',
     '{{ task }}',
     '{{steps.plan.outcome.path }}',
     '{{steps.1plan.outcome.path}}',
     '{{steps.plan.outcome.1path}}',
+    '{{{steps.missing.outcome.value}}}',
+    '{{{task}}}',
+    '{{unknown {{steps.missing.outcome.value}} }}',
+    '{{unknown {{task}} }}',
+    '{{unknown {{task}}',
     '{{task',
     'plain text',
     '',
-  ])('preserves unresolved or unsupported text (%#)', (text) => {
+  ])('preserves unsupported text (%#)', (text) => {
     expect(render(text)).toBe(`${HEADER}${text}\n\n${EXIT}\n`);
   });
 
-  it('leaves unvisited outcomes unresolved', () => {
+  it('marks unvisited outcomes as missing', () => {
     expect(render('{{steps.plan.outcome.path}}', { id: ID, task: 'TASK-1', outcomes: {} })).toBe(
-      `${HEADER}{{steps.plan.outcome.path}}\n\n${EXIT}\n`,
+      `${HEADER}-\n\n${EXIT}\n`,
+    );
+  });
+
+  it('marks missing steps and fields with valid names', () => {
+    expect(render('{{steps.missing-1_a.outcome.field_2}} / {{steps.plan.outcome.absent}}')).toBe(
+      `${HEADER}- / -\n\n${EXIT}\n`,
+    );
+  });
+
+  it('substitutes adjacent placeholders without treating them as nested', () => {
+    expect(render('{{task}}{{steps.missing.outcome.value}}{{steps.plan.outcome.path}}')).toBe(
+      `${HEADER}TASK-1-docs/plan.md\n\n${EXIT}\n`,
+    );
+  });
+
+  it('continues substitution after a nested malformed expression', () => {
+    expect(render('{{unknown {{task}} }} {{task}}')).toBe(
+      `${HEADER}{{unknown {{task}} }} TASK-1\n\n${EXIT}\n`,
+    );
+  });
+
+  it('continues on the next line after an unclosed expression', () => {
+    expect(render('Example `{{task`\nCurrent: {{task}}')).toBe(
+      `${HEADER}Example \`{{task\`\nCurrent: TASK-1\n\n${EXIT}\n`,
+    );
+  });
+
+  it('substitutes placeholders next to surrounding structural braces', () => {
+    expect(render('{"plan":{{steps.plan.outcome.path}}}')).toBe(
+      `${HEADER}{"plan":docs/plan.md}\n\n${EXIT}\n`,
     );
   });
 
@@ -96,12 +129,22 @@ describe('output', () => {
     expect(render('Before {{steps.plan.outcome.note}}after')).toBe(
       `${HEADER}Before after\n\n${EXIT}\n`,
     );
+    expect(render('{{steps.plan.outcome.note}} / {{steps.plan.outcome.missing}}')).toBe(
+      `${HEADER} / -\n\n${EXIT}\n`,
+    );
+    expect(
+      render('{{steps.plan.outcome.note}}', {
+        id: ID,
+        task: 'TASK-1',
+        outcomes: { plan: { note: '-' } },
+      }),
+    ).toBe(`${HEADER}-\n\n${EXIT}\n`);
   });
 
-  it('resolves own prototype-named properties but leaves inherited properties unresolved', () => {
+  it('resolves own prototype-named properties but marks inherited properties missing', () => {
     const text =
       '{{steps.constructor.outcome.toString}} / {{steps.plan.outcome.constructor}} / {{steps.toString.outcome.path}}';
-    expect(render(text)).toBe(`${HEADER}${text}\n\n${EXIT}\n`);
+    expect(render(text)).toBe(`${HEADER}- / - / -\n\n${EXIT}\n`);
     expect(
       render(text, {
         id: ID,
@@ -111,7 +154,7 @@ describe('output', () => {
           plan: { constructor: 'own field' },
         },
       }),
-    ).toBe(`${HEADER}own value / own field / {{steps.toString.outcome.path}}\n\n${EXIT}\n`);
+    ).toBe(`${HEADER}own value / own field / -\n\n${EXIT}\n`);
   });
 
   it('inserts task and outcome text once and preserves literal replacement metacharacters', () => {

@@ -64,10 +64,7 @@ describe('stepan current', () => {
   it('prints the actual current step, including a final step without outcomes', () => {
     const cli = fixture();
     writeFileSync(cli.runPath, JSON.stringify({ ...readRun(cli), step: 'finish' }));
-    expectStep(
-      cli,
-      `Run: ${cli.id}\nStep: finish\n\nFinish {{steps.plan.outcome.plan}}.\n\nstepan next ${cli.id}\n`,
-    );
+    expectStep(cli, `Run: ${cli.id}\nStep: finish\n\nFinish -.\n\nstepan next ${cli.id}\n`);
   });
 
   it('reports completion with the run ID and exit code 0', () => {

@@ -43,6 +43,7 @@ describe('repository example', () => {
       );
       expect(started.stdout).not.toContain(' -> ');
       expect(started.stdout).toContain('Complete TASK-12');
+      expect(started.stdout).toContain('Previous review findings: -');
 
       const review = runCli(['next', id, '--summary', 'First implementation.'], cli);
       expect(review).toMatchObject({ code: 0, stderr: '' });

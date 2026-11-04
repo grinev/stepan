@@ -112,9 +112,12 @@ when it needs rework; a failed review goes back to `implement`.
 - **Final step** — a step without transitions. `next` on it finishes the run. Cycles are allowed.
 - **Placeholders** — `{{task}}` and `{{steps.<id>.outcome.<field>}}` in an instruction are
   replaced before it is printed, using these exact forms without spaces inside the braces.
-  A placeholder that cannot be resolved stays as it is; a stored empty string replaces it with
-  empty text. Substitution runs once: task and outcome values are data rather than nested
-  templates. The snapshot keeps the original instruction text; substitution only affects output.
+  A syntactically valid outcome reference with no stored value prints `-`, including an unknown
+  step or field. The visible marker distinguishes missing data from a stored empty string, which
+  prints as empty text; a stored `-` looks the same as the marker. Unknown or malformed
+  placeholders stay literal. Substitution runs once: task and outcome values are data rather
+  than nested templates. The snapshot keeps the original instruction text; substitution only
+  affects output.
 - **Names** — a step id and an outcome field name start with an ASCII letter and continue with
   ASCII letters, digits, `-` or `_`. A step id is a graph key and a placeholder segment;
   an outcome field name is a CLI flag and a placeholder segment.

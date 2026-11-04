@@ -82,11 +82,13 @@ Implement {{task}} using {{steps.plan.outcome.plan}}.
 
 prints as `Implement TASK-12 using docs/plan.md.` Stepan inserts the path as text, rather than
 reading that file. Explicit inputs like these help resume a step after a restart or compaction.
-Unknown references, including outcomes that have not been reported yet, stay literal; saved
-empty strings substitute as empty text. Use the exact forms shown, without spaces inside the
-braces. Each instruction is substituted once: task and outcome values are data, so references
-inside those values stay literal. The snapshot keeps the original template, and a revisited
-step's new outcome supplies the values for subsequent output.
+Syntactically valid outcome references without a stored value print `-`, including references to
+unknown steps or fields. This visible marker distinguishes missing data from a saved empty string,
+which prints as empty text; a saved `-` looks the same as the marker. Unknown or malformed
+placeholders stay literal. Use the exact forms shown, without spaces inside the braces. Each
+instruction is substituted once: task and outcome values are data, so references inside those
+values stay literal. The snapshot keeps the original template, and a revisited step's new outcome
+supplies the values for subsequent output.
 
 `runs` lists ID, flow, task, current step and status, sorted by ID; `--all` includes retained
 finished runs. Cells are tab-separated and JSON-quoted, keeping multiline tasks on one row.
