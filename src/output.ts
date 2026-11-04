@@ -1,24 +1,11 @@
-import type { Flow, Step } from './flow.js';
+import type { Step } from './flow.js';
 import type { RunState } from './run.js';
 
 type InstructionContext = Pick<RunState, 'id' | 'task' | 'outcomes'>;
 
-export function graphOverview(flow: Flow): string {
-  return Object.entries(flow.steps)
-    .map(([id, step]) => {
-      if (step.transitions.length === 0) return `${id} (final)`;
-      const edges = step.transitions.map(({ to, when }) => {
-        const condition =
-          when === undefined
-            ? ''
-            : `${Object.entries(when)
-                .map(([field, value]) => `${field}=${JSON.stringify(value)}`)
-                .join('')} -> `;
-        return `${condition}${to}`;
-      });
-      return `${id} -> ${edges.join(', ')}`;
-    })
-    .join('\n');
+export function startOutput(description: string | undefined, step: string): string {
+  if (description === undefined || description.length === 0) return step;
+  return `${description}${description.endsWith('\n') ? '' : '\n'}\n${step}`;
 }
 
 function instructionText(text: string, context: InstructionContext): string {

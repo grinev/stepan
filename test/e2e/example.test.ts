@@ -38,11 +38,10 @@ describe('repository example', () => {
       const started = runCli(['start', 'example', 'TASK-12'], cli);
       const id = runId(started);
       expect(started.stderr).toBe('');
-      expect(started.stdout).toContain('implement -> review');
       expect(started.stdout).toContain(
-        'review -> verdict="fail" -> implement, verdict="pass" -> finish',
+        'Implement a task, review it, and address findings until the work is ready to finish.',
       );
-      expect(started.stdout).toContain('finish (final)');
+      expect(started.stdout).not.toContain(' -> ');
       expect(started.stdout).toContain('Complete TASK-12');
 
       const review = runCli(['next', id, '--summary', 'First implementation.'], cli);

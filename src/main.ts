@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { loadFlow, type Step } from './flow.js';
-import { graphOverview, runsOutput, stepOutput } from './output.js';
+import { runsOutput, startOutput, stepOutput } from './output.js';
 import { removeRun, listRuns, loadRun, saveStart, updateRun, validateRunId } from './run-store.js';
 import { advanceRun, currentStep } from './run.js';
 import { writeRoot } from './write-root.js';
@@ -88,7 +88,7 @@ function start(argv: readonly string[], out: Output): number {
     const run = saveStart(writeRoot(cwd), flow, flowName, task);
     const step = flow.steps[run.step];
     if (step === undefined) throw new Error(`Unknown start step '${run.step}'`);
-    out.stdout(`${graphOverview(flow)}\n\n${stepOutput(run.step, step, run)}`);
+    out.stdout(startOutput(flow.description, stepOutput(run.step, step, run)));
     return 0;
   } catch (error) {
     out.stderr(`stepan: ${error instanceof Error ? error.message : String(error)}\n`);

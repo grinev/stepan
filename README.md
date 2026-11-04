@@ -13,7 +13,7 @@ Stepan turns the workflow into a graph the agent walks one step at a time, insid
 session. For example, after `start` returns the run ID `a7c93f2b`:
 
 ```sh
-stepan start feature TASK-12                 # run ID, graph and first instruction
+stepan start feature TASK-12                 # description, run ID and first instruction
 stepan next a7c93f2b --plan "docs/plan.md"    # report the current outcome, get the next instruction
 stepan current a7c93f2b                     # repeat the current instruction
 stepan runs                                # recover IDs of active runs
@@ -44,7 +44,10 @@ run state; do not ignore all of `.stepan/`. Flow definitions are read only from 
 directory's `.stepan/flows/`, with no global lookup or fallback to a top-level `flows/` directory.
 
 `start` validates the entire flow, saves a snapshot of its graph and instruction texts, and prints
-the graph and first instruction with a `stepan next` exit template. Replace the template values
+the optional flow description and first instruction with a `stepan next` exit template. Add a
+string `description` to `flow.yaml` to explain the flow's purpose, approach and result boundary;
+it may be multiline or empty and is printed literally, without placeholder substitution. No graph
+is printed, even when the description is absent. `current` and `next` do not repeat it. Replace the template values
 with the step's actual outcome; the run ID is already filled in. IDs are eight lowercase hex
 characters. Each `start` creates a separate run, even for the same flow and task, and never
 replaces existing active or finished runs. One session drives a run; several runs can coexist.

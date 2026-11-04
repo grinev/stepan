@@ -9,6 +9,18 @@ function definition(step: unknown = { instruction: 'first.md' }) {
 }
 
 describe('validateFlow', () => {
+  it.each(['', 'First line\nSecond line\n'])('preserves description (%#)', (description) => {
+    expect(validateFlow({ ...definition(), description }).description).toBe(description);
+    expect(Object.hasOwn(validateFlow(definition()), 'description')).toBe(false);
+  });
+
+  it.each([null, true, 42, [], {}, undefined])(
+    'rejects non-string description (%#)',
+    (description) => {
+      expect(() => validateFlow({ ...definition(), description })).toThrow('flow.description');
+    },
+  );
+
   it('normalizes optional fields and accepts empty instruction snapshots', () => {
     expect(validateFlow(definition({ instruction: '', outcome: null, transitions: [] }))).toEqual({
       start: 'first',
@@ -169,12 +181,24 @@ describe('loadFlow', () => {
 
   it('loads all instruction texts and keeps unresolved placeholders', () => {
     const cwd = fixture(
-      'start: first\nsteps:\n  first:\n    instruction: first.md\n  last:\n    instruction: last.md\n',
+      'description: |\n  Context {{task}}\n  Second line\nstart: first\nsteps:\n  first:\n    instruction: first.md\n  last:\n    instruction: last.md\n',
     );
     writeFileSync(join(cwd, '.stepan/flows/example/first.md'), 'Task {{task}}');
     writeFileSync(join(cwd, '.stepan/flows/example/last.md'), 'Последний шаг');
     expect(loadFlow(cwd, 'example').steps.last?.instruction).toBe('Последний шаг');
     expect(loadFlow(cwd, 'example').steps.first?.instruction).toBe('Task {{task}}');
+    expect(loadFlow(cwd, 'example').description).toBe('Context {{task}}\nSecond line\n');
+  });
+
+  it.each([
+    ['', undefined],
+    ['description: ""\n', ''],
+  ])('preserves absent and empty descriptions on load (%#)', (prefix, description) => {
+    const cwd = fixture(`${prefix}start: first\nsteps:\n  first: {instruction: first.md}\n`);
+    writeFileSync(join(cwd, '.stepan/flows/example/first.md'), 'Instruction.');
+    const flow = loadFlow(cwd, 'example');
+    expect(Object.hasOwn(flow, 'description')).toBe(description !== undefined);
+    expect(flow.description).toBe(description);
   });
 
   it.each(['../outside', '/absolute', '.', ''])(

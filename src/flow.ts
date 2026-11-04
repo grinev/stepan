@@ -17,6 +17,7 @@ export interface Step {
 }
 
 export interface Flow {
+  description?: string;
   start: string;
   steps: Record<string, Step>;
 }
@@ -112,7 +113,10 @@ function transitions(
 /** Validates both a flow definition and the graph embedded in a run snapshot. */
 export function validateFlow(value: unknown): Flow {
   const flow = record(value, 'flow');
-  keys(flow, ['start', 'steps'], 'flow');
+  keys(flow, ['description', 'start', 'steps'], 'flow');
+  const description = Object.hasOwn(flow, 'description')
+    ? { description: string(flow.description, 'flow.description') }
+    : {};
   const start = string(flow.start, 'flow.start');
   const rawSteps = record(flow.steps, 'flow.steps');
   if (Object.keys(rawSteps).length === 0) throw new Error('flow.steps: expected at least one step');
@@ -142,7 +146,7 @@ export function validateFlow(value: unknown): Flow {
       }
     }
   }
-  return { start, steps };
+  return { ...description, start, steps };
 }
 
 export function loadFlow(cwd: string, flowName: string): Flow {
@@ -187,6 +191,7 @@ export function loadFlow(cwd: string, flowName: string): Flow {
   const parsed: unknown = document.toJS({ maxAliasCount: 100 });
   const flow = validateFlow(parsed);
   return {
+    ...(flow.description === undefined ? {} : { description: flow.description }),
     start: flow.start,
     steps: Object.fromEntries(
       Object.entries(flow.steps).map(([id, step]): [string, Step] => {

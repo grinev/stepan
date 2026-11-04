@@ -85,11 +85,7 @@ describe('instruction placeholders', () => {
     'renders task and latest outcomes from the unchanged %s snapshot',
     (layout) => {
       const cli = fixture(FLOW, INSTRUCTIONS, layout);
-      success(
-        cli,
-        ['start', 'feature', TASK],
-        `plan -> review\nreview -> verdict="fail" -> plan, finish\nfinish (final)\n\n${planOutput()}`,
-      );
+      success(cli, ['start', 'feature', TASK], planOutput());
       const snapshot = readRun(cli).flow;
       for (const [id, text] of Object.entries(INSTRUCTIONS)) {
         expect(snapshot.steps[id]?.instruction).toBe(text);
@@ -161,7 +157,7 @@ steps:
     success(
       cli,
       ['start', 'feature', task],
-      `loop -> loop\n\nRun: RUN-ID\nStep: loop\n\nTask: ${task}\nValue: {{steps.loop.outcome.value}}\nEmpty: [{{steps.loop.outcome.empty}}]\n${unknown}\n${exit}`,
+      `Run: RUN-ID\nStep: loop\n\nTask: ${task}\nValue: {{steps.loop.outcome.value}}\nEmpty: [{{steps.loop.outcome.empty}}]\n${unknown}\n${exit}`,
     );
     const output = `Run: RUN-ID\nStep: loop\n\nTask: ${task}\nValue: ${value}\nEmpty: []\n${unknown}\n${exit}`;
     success(cli, ['next', cli.id, '--value', value, '--empty='], output);
@@ -171,7 +167,7 @@ steps:
     expect(readRun(cli).flow.steps.loop?.instruction).toBe(instruction);
   });
 
-  it('keeps placeholder-like enum values literal in the graph, exit template and inserted outcome', () => {
+  it('keeps placeholder-like enum values literal in the exit template and inserted outcome', () => {
     const instruction = 'Task {{task}}; last {{steps.choose.outcome.verdict}}.';
     const cli = fixture(
       `start: choose
@@ -193,7 +189,7 @@ steps:
     success(
       cli,
       ['start', 'feature', 'TASK-5'],
-      `choose -> verdict="{{task}}" -> choose, finish\nfinish (final)\n\nRun: RUN-ID\nStep: choose\n\nTask TASK-5; last {{steps.choose.outcome.verdict}}.\n\n${exit}`,
+      `Run: RUN-ID\nStep: choose\n\nTask TASK-5; last {{steps.choose.outcome.verdict}}.\n\n${exit}`,
     );
     const output = `Run: RUN-ID\nStep: choose\n\nTask TASK-5; last {{task}}.\n\n${exit}`;
     success(cli, ['next', cli.id, '--verdict', '{{task}}'], output);

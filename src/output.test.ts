@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { graphOverview, runsOutput, stepOutput } from './output.js';
+import { runsOutput, startOutput, stepOutput } from './output.js';
 import { validateFlow, type Step } from './flow.js';
 import type { RunState } from './run.js';
 
@@ -17,19 +17,14 @@ function render(instruction: string, data = context): string {
 }
 
 describe('output', () => {
-  it('shows ordered conditional edges, defaults and final steps', () => {
-    const flow = validateFlow({
-      start: 'review',
-      steps: {
-        review: {
-          instruction: 'Review.',
-          outcome: { verdict: { type: 'enum', values: ['pass', 'fail'] } },
-          transitions: [{ when: { verdict: 'fail' }, to: 'review' }, { to: 'finish' }],
-        },
-        finish: { instruction: 'Finish.' },
-      },
-    });
-    expect(graphOverview(flow)).toBe('review -> verdict="fail" -> review, finish\nfinish (final)');
+  it.each([
+    [undefined, 'Step output'],
+    ['', 'Step output'],
+    ['Context {{task}}', 'Context {{task}}\n\nStep output'],
+    ['First\nSecond\n', 'First\nSecond\n\nStep output'],
+    ['Context\n\n', 'Context\n\n\nStep output'],
+  ])('formats the literal optional description (%#)', (description, expected) => {
+    expect(startOutput(description, 'Step output')).toBe(expected);
   });
 
   it('renders all field types and optionality in the exit template', () => {

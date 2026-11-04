@@ -1,3 +1,4 @@
+description: Implement a task, review it, and address findings until the work is ready to finish.
 start: implement
 steps:
   implement:

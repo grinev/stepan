@@ -78,6 +78,11 @@ function put(root: string, text = JSON.stringify(state())): void {
 }
 
 describe('validateRun', () => {
+  it.each(['', 'Context\nwith two lines'])('retains snapshot descriptions (%#)', (description) => {
+    const run = { ...state(), flow: { ...flow, description } };
+    expect(validateRun(run)).toEqual(run);
+  });
+
   it('accepts snapshots and completed outcomes', () => {
     expect(validateRun(state())).toEqual(state());
     const value = { ...state(), finished: true, outcomes: { first: { note: 'saved' }, last: {} } };
@@ -93,6 +98,7 @@ describe('validateRun', () => {
     [{ ...state(), task: '' }, 'task'],
     [{ ...state(), finished: 'yes' }, 'finished'],
     [{ ...state(), flow: null }, 'flow'],
+    [{ ...state(), flow: { ...flow, description: null } }, 'flow.description'],
     [{ ...state(), step: 'constructor' }, 'step'],
     [{ ...state(), outcomes: null }, 'outcomes'],
     [{ ...state(), outcomes: { missing: {} } }, 'unknown step'],

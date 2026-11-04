@@ -61,6 +61,7 @@ Flow definitions and run state share `.stepan/` so Stepan does not reserve a gen
 to a top-level `flows/` directory.
 
 ```yaml
+description: Implement a change, review it, and finish when the review passes.
 start: plan
 steps:
   plan:
@@ -117,10 +118,14 @@ when it needs rework; a failed review goes back to `implement`.
 - **Names** — a step id and an outcome field name start with an ASCII letter and continue with
   ASCII letters, digits, `-` or `_`. A step id is a graph key and a placeholder segment;
   an outcome field name is a CLI flag and a placeholder segment.
+- **Description** — optional string explaining the flow's purpose, approach and result boundary
+  to the agent. It may be multiline or empty and is printed literally at `start`, without
+  instruction placeholder substitution.
 
 `start` validates the flow before it writes anything:
 
 - `flow.yaml` exists and parses; `start` and a non-empty `steps` are present;
+- `description`, when present, is a string;
 - `start` names a step and every `to` names a step;
 - every step id and outcome field name follows the name rule;
 - every step has a readable `instruction` file;
@@ -154,8 +159,8 @@ A refused flow says what is wrong and, when there is a step or a key, names it.
   - `task` — the string from `start`;
   - `step` — the current step id;
   - `finished` — whether the run is over;
-  - `flow` — the snapshot: the start step and every step's instruction text, outcome schema and
-    transitions;
+  - `flow` — the snapshot: the optional description, start step and every step's instruction text,
+    outcome schema and transitions;
   - `outcomes` — the latest outcome of every step visited.
 
 - `start` snapshots the graph and every instruction text into the run file. Editing the YAML or a
@@ -172,7 +177,7 @@ A refused flow says what is wrong and, when there is a step or a key, names it.
 
 | Command                                  | Does                                                            |
 | ---------------------------------------- | --------------------------------------------------------------- |
-| `stepan start <flow> <task>`             | creates a run, prints the graph, run ID and first instruction   |
+| `stepan start <flow> <task>`             | creates a run, prints its description, ID and first instruction |
 | `stepan current <run-id>`                | prints the selected run's current instruction from its snapshot |
 | `stepan next <run-id> --<field> <value>` | takes the selected run's current outcome and moves on           |
 | `stepan rm <run-id>`                     | deletes the selected run                                        |
@@ -182,8 +187,9 @@ A refused flow says what is wrong and, when there is a step or a key, names it.
 - `<flow>` names a directory under `.stepan/flows/` in the working directory: `stepan start feature`
   reads `.stepan/flows/feature/flow.yaml`. `<task>` is any non-empty string kept in the run for `{{task}}`;
   Stepan does not resolve it against a tracker.
-- **Graph overview** — a line per step: the step, each transition with the value that selects it,
-  and `(final)` for a step without transitions.
+- **`start` output** — the optional nonempty description, then the first step output. No graph
+  is printed, even without a description: the agent needs the current instruction, not the
+  transition graph. `current` and `next` do not repeat the description.
 - **Run selection** — `current`, `next` and `rm` require a valid run ID; omission or an invalid
   ID is a usage error. They never guess a run from its task, flow, recency or harness session.
 - **`current`** — how a session resumes after a restart or a compaction: the same step from
