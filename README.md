@@ -2,8 +2,8 @@
 
 **CLI for agent workflows.** The agent pulls the next step; Stepan holds the flow.
 
-> **Status: early development.** `start`, `current`, `next`, `rm`, `runs`, independent run IDs
-> and instruction placeholder substitution are implemented. Checks and hooks are not implemented yet.
+> **Status: early development.** `start`, `current`, `next`, `rm`, `runs`, independent run IDs,
+> execution history and instruction placeholder substitution are implemented. Checks and hooks are not implemented yet.
 
 Coding agents follow a workflow written as prose: one long instruction loaded at the start of a
 session. By the time the agent reaches the review step, the rules for it are a hundred thousand
@@ -43,7 +43,7 @@ Keep `.stepan/flows/` in Git. Add only `.stepan/runs/` to your project's `.gitig
 run state; do not ignore all of `.stepan/`. Flow definitions are read only from the working
 directory's `.stepan/flows/`, with no global lookup or fallback to a top-level `flows/` directory.
 
-`start` validates the entire flow, saves a snapshot of its graph and instruction texts, and prints
+`start` validates the entire flow, records the initial step and timestamp, and prints
 the optional flow description and first instruction with a `stepan next` exit template. Add a
 string `description` to `flow.yaml` to explain the flow's purpose, approach and result boundary;
 it may be multiline or empty and is printed literally, without placeholder substitution. No graph
@@ -53,16 +53,19 @@ characters. Each `start` creates a separate run, even for the same flow and task
 replaces existing active or finished runs. One session drives a run; several runs can coexist.
 This isolates state, not code changes in the working directory; use worktrees for file isolation.
 
-`current` repeats only the current instruction and exit template from the saved snapshot, even
-if the original YAML or Markdown files have changed or been removed. It does not modify the run.
+`current` repeats only the current instruction and exit template from the project's current
+flow files. It does not modify the run. Valid edits to YAML and Markdown apply to subsequent
+commands; a missing file, invalid definition or removed current step produces an error without
+advancing. There is no saved flow snapshot or automatic flow versioning.
 Without a run, or with an unreadable run, it reports an error. A finished run reports
 `Run <run-id> is finished.` and exits successfully without printing a step.
 
 `next` takes the run ID first, then outcome fields as long flags; it reads the current step from
 the run's state, so there is no step argument. It validates
 required fields and enum values, saves the outcome, follows the first matching transition (or
-the default), and prints the next instruction and exit template from the snapshot. Cycles work;
-revisiting a step replaces its previous outcome. An invalid outcome or unmatched
+the default), and prints the next instruction and exit template from the current project files.
+Cycles work; each completed visit and its outcome remain in history. Instructions see the latest
+completed outcome of each step, replacing rather than merging previous fields. An invalid outcome or unmatched
 transition leaves the run unchanged.
 
 Entering a final step does not finish the run: report that step's outcome with `next` too. It then
@@ -87,14 +90,23 @@ unknown steps or fields. This visible marker distinguishes missing data from a s
 which prints as empty text; a saved `-` looks the same as the marker. Unknown or malformed
 placeholders stay literal. Use the exact forms shown, without spaces inside the braces. Each
 instruction is substituted once: task and outcome values are data, so references inside those
-values stay literal. The snapshot keeps the original template, and a revisited step's new outcome
-supplies the values for subsequent output.
+values stay literal. Project templates remain unchanged; a revisited step's new outcome supplies
+the values for subsequent output. Entering a step again does not erase its previous outcome.
 
 `runs` lists ID, flow, task, current step and status, sorted by ID; `--all` includes retained
 finished runs. Cells are tab-separated and JSON-quoted, keeping multiline tasks on one row.
 Empty lists succeed. `rm <run-id>` deletes an active, finished or damaged run; a missing run
 is an error. Deleted runs disappear from both lists. Commands never implicitly select the latest
 run, so parallel sessions cannot accidentally advance each other's state.
+
+Run JSON format version 2 contains only `version`, `id`, `flowName`, `task` and ordered `events`:
+`started` records the initial step, `transitioned` records each actual `from`/`to` and outcome,
+and `finished` records the final step and outcome. Each event has a UTC timestamp with
+milliseconds. The current state is derived from this history. Past events are not replayed
+against edited definitions: the visited path survives, but the full historical graph is not
+preserved. See [PRODUCT.md](./PRODUCT.md#run) for the exact format. Version 1 and unknown
+versions are rejected without migration; `rm` can still delete them explicitly. Listings and
+finished-run responses do not need the flow files.
 
 Installed packages save `.stepan/runs/<run-id>.json` in the working directory. From sources, build and run
 `node dist/cli.js start <name> <task>`; state goes into this repository's `.dev-data/` instead.

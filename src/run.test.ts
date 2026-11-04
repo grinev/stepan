@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { validateFlow } from './flow.js';
-import { advanceRun, currentStep, validateOutcome, type RunState } from './run.js';
+import { advanceRun, currentStep, runView, validateOutcome, type RunState } from './run.js';
 
 function state(
   definition: unknown = {
@@ -10,18 +10,16 @@ function state(
       last: { instruction: 'Last.' },
     },
   },
-): RunState {
+) {
   const flow = validateFlow(definition);
-  return {
-    version: 1,
+  const run: RunState = {
+    version: 2,
     id: 'a7c93f2b',
     flowName: 'feature',
     task: 'TASK-1',
-    step: flow.start,
-    finished: false,
-    flow,
-    outcomes: {},
+    events: [{ type: 'started', at: '2026-11-05T10:00:00.000Z', step: flow.start }],
   };
+  return { run, flow };
 }
 
 describe('validateOutcome', () => {
@@ -68,40 +66,55 @@ describe('validateOutcome', () => {
 
 describe('currentStep', () => {
   it('returns the current step and refuses a finished run', () => {
-    const run = state();
-    expect(currentStep(run)).toBe(run.flow.steps.first);
-    expect(() => currentStep({ ...run, finished: true })).toThrow(`Run ${run.id} is finished.`);
+    const { run, flow } = state();
+    expect(currentStep(run, flow)).toBe(flow.steps.first);
+    const finished = advanceRun(advanceRun(run, flow, {}), flow, {});
+    expect(() => currentStep(finished, flow)).toThrow(`Run ${run.id} is finished.`);
   });
 
   it.each(['missing', 'constructor'])('guards an invalid current step %s', (step) => {
-    expect(() => currentStep({ ...state(), step })).toThrow('Unknown current step');
+    const { run, flow } = state();
+    run.events = [{ type: 'started', at: '2026-11-05T10:00:00.000Z', step }];
+    expect(() => currentStep(run, flow)).toThrow(`unknown current step '${step}'`);
   });
 });
 
 describe('advanceRun', () => {
   it('enters but does not finish a final step, then stores its empty outcome on completion', () => {
-    const before = state();
+    const { run: before, flow } = state();
     const copy = structuredClone(before);
-    const moved = advanceRun(before, {});
-    expect(moved).toEqual({ ...before, step: 'last', outcomes: { first: {} } });
+    const at = '2026-11-05T10:01:00.000Z';
+    const moved = advanceRun(before, flow, {}, at);
+    expect(moved.events).toEqual([
+      ...before.events,
+      { type: 'transitioned', at, from: 'first', to: 'last', outcome: {} },
+    ]);
     expect(before).toEqual(copy);
-    const finished = advanceRun(moved, {});
-    expect(finished).toEqual({ ...moved, finished: true, outcomes: { first: {}, last: {} } });
-    expect(moved.finished).toBe(false);
-    expect(() => advanceRun(finished, {})).toThrow('is finished.');
+    const finished = advanceRun(moved, flow, {}, at);
+    expect(finished.events).toEqual([
+      ...moved.events,
+      { type: 'finished', at, step: 'last', outcome: {} },
+    ]);
+    expect(runView(finished)).toMatchObject({
+      step: 'last',
+      finished: true,
+      outcomes: { first: {}, last: {} },
+    });
+    expect(runView(moved).finished).toBe(false);
+    expect(() => advanceRun(finished, flow, {})).toThrow('is finished.');
   });
 
   it('validates an outcome before finishing a final step', () => {
-    const before = state({
+    const { run: before, flow } = state({
       start: 'last',
       steps: {
         last: { instruction: 'Last.', outcome: { text: { type: 'string', required: true } } },
       },
     });
     const copy = structuredClone(before);
-    expect(() => advanceRun(before, {})).toThrow('text: required');
+    expect(() => advanceRun(before, flow, {})).toThrow('text: required');
     expect(before).toEqual(copy);
-    expect(advanceRun(before, { text: 'Done.' })).toMatchObject({
+    expect(runView(advanceRun(before, flow, { text: 'Done.' }))).toMatchObject({
       finished: true,
       step: 'last',
       outcomes: { last: { text: 'Done.' } },
@@ -109,7 +122,7 @@ describe('advanceRun', () => {
   });
 
   it('selects the first matching conditional, otherwise the default', () => {
-    const run = state({
+    const { run, flow } = state({
       start: 'review',
       steps: {
         review: {
@@ -124,13 +137,13 @@ describe('advanceRun', () => {
         last: { instruction: 'Last.' },
       },
     });
-    expect(advanceRun(run, { verdict: 'fail' }).step).toBe('review');
-    expect(advanceRun(run, { verdict: 'pass' }).step).toBe('last');
-    expect(advanceRun(run, {}).step).toBe('last');
+    expect(runView(advanceRun(run, flow, { verdict: 'fail' })).step).toBe('review');
+    expect(runView(advanceRun(run, flow, { verdict: 'pass' })).step).toBe('last');
+    expect(runView(advanceRun(run, flow, {})).step).toBe('last');
   });
 
   it('does not treat missing optional or inherited fields as matching values', () => {
-    const run = state({
+    const { run, flow } = state({
       start: 'first',
       steps: {
         first: {
@@ -145,13 +158,13 @@ describe('advanceRun', () => {
         last: { instruction: 'Last.' },
       },
     });
-    expect(advanceRun(run, {}).step).toBe('last');
-    expect(advanceRun(run, { note: '' }).step).toBe('first');
-    expect(advanceRun(run, { constructor: 'value' }).step).toBe('first');
+    expect(runView(advanceRun(run, flow, {})).step).toBe('last');
+    expect(runView(advanceRun(run, flow, { note: '' })).step).toBe('first');
+    expect(runView(advanceRun(run, flow, { constructor: 'value' })).step).toBe('first');
   });
 
   it('replaces a revisited outcome rather than merging optional fields', () => {
-    const before = state({
+    const { run: before, flow } = state({
       start: 'first',
       steps: {
         first: {
@@ -162,17 +175,17 @@ describe('advanceRun', () => {
         second: { instruction: 'Second.', transitions: [{ to: 'first' }] },
       },
     });
-    const one = advanceRun(before, { text: 'old', note: 'remove' });
-    const two = advanceRun(one, {});
-    const three = advanceRun(two, { text: 'new' });
-    expect(three.outcomes).toEqual({ first: { text: 'new' }, second: {} });
-    expect(three.flow).toBe(before.flow);
+    const one = advanceRun(before, flow, { text: 'old', note: 'remove' });
+    const two = advanceRun(one, flow, {});
+    const three = advanceRun(two, flow, { text: 'new' });
+    expect(runView(three).outcomes).toEqual({ first: { text: 'new' }, second: {} });
+    expect(three.events.slice(0, -1)).toEqual(two.events);
     expect(three.task).toBe(before.task);
-    expect(two.outcomes.first).toEqual({ text: 'old', note: 'remove' });
+    expect(runView(two).outcomes.first).toEqual({ text: 'old', note: 'remove' });
   });
 
   it('leaves state unchanged when no transition matches', () => {
-    const run = state({
+    const { run, flow } = state({
       start: 'first',
       steps: {
         first: {
@@ -183,7 +196,41 @@ describe('advanceRun', () => {
       },
     });
     const copy = structuredClone(run);
-    expect(() => advanceRun(run, { note: 'no' })).toThrow('no matching transition');
+    expect(() => advanceRun(run, flow, { note: 'no' })).toThrow('no matching transition');
     expect(run).toEqual(copy);
+  });
+
+  it('uses the supplied flow without revalidating historical steps or outcomes', () => {
+    const { run, flow } = state();
+    const moved = advanceRun(run, flow, {});
+    const edited = validateFlow({
+      start: 'last',
+      steps: {
+        last: { instruction: 'New.', outcome: { text: { type: 'string' } } },
+      },
+    });
+    expect(currentStep(moved, edited).instruction).toBe('New.');
+    const finished = advanceRun(moved, edited, { text: 'line one\nline two' });
+    expect(runView(finished).outcomes).toEqual({ first: {}, last: { text: 'line one\nline two' } });
+    expect(finished.events.slice(0, -1)).toEqual(moved.events);
+  });
+
+  it('reduces prototype-named steps without inherited values or modifying recorded outcomes', () => {
+    const { run, flow } = state({
+      start: 'constructor',
+      steps: {
+        constructor: {
+          instruction: '',
+          outcome: { toString: { type: 'string' } },
+          transitions: [{ to: 'constructor' }],
+        },
+      },
+    });
+    const moved = advanceRun(run, flow, { toString: 'own' });
+    const view = runView(moved);
+    expect(Object.hasOwn(runView(run).outcomes, 'constructor')).toBe(false);
+    expect(view.outcomes.constructor).toEqual({ toString: 'own' });
+    Object.assign(view.outcomes.constructor, { toString: 'changed' });
+    expect(runView(moved).outcomes.constructor).toEqual({ toString: 'own' });
   });
 });

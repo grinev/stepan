@@ -8,6 +8,7 @@ import {
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import type { RunState } from '../../src/run.js';
 import { createCli, runCli, runId, runPath, type CliSandbox } from './run-cli.js';
 
 const FLOW = `start: plan
@@ -47,7 +48,7 @@ function fixture(layout: 'installed' | 'sources' = 'installed'): CliSandbox {
 
 describe('stepan start', () => {
   it.each(['installed', 'sources'] as const)(
-    'prints and retains optional descriptions in %s mode',
+    'prints optional descriptions without persisting them in %s mode',
     (layout) => {
       const cli = fixture(layout);
       const cases = [
@@ -66,14 +67,12 @@ describe('stepan start', () => {
         expect(started.stdout).toBe(
           `${prefix}Run: ${id}\nStep: plan\n\nPlan TASK-1.\n\nstepan next ${id} --plan "<text>" [--note "<text>"]\n`,
         );
-        const snapshot = (): Record<string, unknown> =>
-          (JSON.parse(readFileSync(runPath(cli, id), 'utf8')) as { flow: Record<string, unknown> })
-            .flow;
-        const checkDescription = (): void => {
-          expect(Object.hasOwn(snapshot(), 'description')).toBe(description !== undefined);
-          expect(snapshot().description).toBe(description);
+        const checkRecord = (): void => {
+          const record: unknown = JSON.parse(readFileSync(runPath(cli, id), 'utf8'));
+          expect(record).not.toHaveProperty('flow');
+          expect(record).not.toHaveProperty('description');
         };
-        checkDescription();
+        checkRecord();
         const current = runCli(['current', id], cli);
         expect(current).toMatchObject({ code: 0, stderr: '' });
         expect(current.stdout).toBe(started.stdout.slice(prefix.length));
@@ -82,7 +81,7 @@ describe('stepan start', () => {
         expect(next).toMatchObject({ code: 0, stderr: '' });
         expect(next.stdout).toContain('Review plan.md.');
         expect(next.stdout).not.toContain('Context for {{task}}');
-        checkDescription();
+        checkRecord();
       }
     },
   );
@@ -99,23 +98,23 @@ describe('stepan start', () => {
     },
   );
 
-  it('rejects invalid description in a saved run without changing it', () => {
+  it('rejects unknown snapshot data in a saved run without changing it', () => {
     const cli = fixture();
     const id = runId(runCli(['start', 'feature', 'TASK-1'], cli));
     const path = runPath(cli, id);
-    const run = JSON.parse(readFileSync(path, 'utf8')) as { flow: Record<string, unknown> };
-    run.flow.description = null;
+    const run = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+    run.flow = { description: null };
     const damaged = JSON.stringify(run);
     writeFileSync(path, damaged);
     for (const args of [['current', id], ['next', id, '--plan', 'plan.md'], ['runs']]) {
       const result = runCli(args, cli);
       expect(result).toMatchObject({ code: 1, stdout: '' });
-      expect(result.stderr).toContain('flow.description');
+      expect(result.stderr).toContain("unknown key 'flow'");
       expect(readFileSync(path, 'utf8')).toBe(damaged);
     }
   });
 
-  it('snapshots the whole flow and prints the run ID and initial exit template without a graph', () => {
+  it('records only execution metadata and prints the initial instruction without a graph', () => {
     const cli = fixture();
     const result = runCli(['start', 'feature', 'STP-8: задача'], cli);
     const id = runId(result);
@@ -124,33 +123,20 @@ describe('stepan start', () => {
       `Run: ${id}\nStep: plan\n\nPlan STP-8: задача.\n\nstepan next ${id} --plan "<text>" [--note "<text>"]\n`,
     );
     const path = runPath(cli, id);
-    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({
-      version: 1,
+    const record = JSON.parse(readFileSync(path, 'utf8')) as RunState;
+    expect(record.events[0]?.at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    expect(record).toEqual({
+      version: 2,
       id,
       flowName: 'feature',
       task: 'STP-8: задача',
-      step: 'plan',
-      finished: false,
-      outcomes: {},
-      flow: {
-        start: 'plan',
-        steps: {
-          plan: {
-            instruction: 'Plan {{task}}.\n',
-            outcome: { plan: { type: 'string', required: true }, note: { type: 'string' } },
-            transitions: [{ to: 'review' }],
-          },
-          review: {
-            instruction: 'Review {{steps.plan.outcome.plan}}.\n',
-            outcome: { verdict: { type: 'enum', values: ['pass', 'fail'], required: true } },
-            transitions: [
-              { when: { verdict: 'fail' }, to: 'plan' },
-              { when: { verdict: 'pass' }, to: 'finish' },
-            ],
-          },
-          finish: { instruction: 'Finish.\n', outcome: {}, transitions: [] },
+      events: [
+        {
+          type: 'started',
+          step: 'plan',
+          at: record.events[0]?.at,
         },
-      },
+      ],
     });
     expect(readdirSync(cli.runsDirectory)).toEqual([`${id}.json`]);
     const before = readFileSync(path, 'utf8');
@@ -309,11 +295,10 @@ describe('stepan start', () => {
     const second = runId(runCli(['start', 'feature', 'TASK-1'], cli));
     expect(first).not.toBe(second);
     expect(readFileSync(path, 'utf8')).toBe(before);
-    const finished = JSON.stringify({
-      ...(JSON.parse(before) as Record<string, unknown>),
-      finished: true,
-    });
-    writeFileSync(path, finished);
+    expect(runCli(['next', first, '--plan=plan.md'], cli).code).toBe(0);
+    expect(runCli(['next', first, '--verdict=pass'], cli).code).toBe(0);
+    expect(runCli(['next', first], cli).code).toBe(0);
+    const finished = readFileSync(path, 'utf8');
     put(cli, '.stepan/flows/bad/flow.yaml', 'invalid: true');
     expect(runCli(['start', 'bad', 'TASK-2'], cli).code).toBe(1);
     runId(runCli(['start', 'feature', 'TASK-2'], cli));

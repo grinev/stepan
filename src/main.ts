@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
-import { loadFlow, type Step } from './flow.js';
+import { loadFlow, type Flow, type Step } from './flow.js';
 import { runsOutput, startOutput, stepOutput } from './output.js';
 import { removeRun, listRuns, loadRun, saveStart, updateRun, validateRunId } from './run-store.js';
-import { advanceRun, currentStep } from './run.js';
+import { advanceRun, currentStep, runView, type RunState } from './run.js';
 import { writeRoot } from './write-root.js';
 
 export interface Output {
@@ -15,7 +15,7 @@ const USAGE = `Usage: stepan <command>
 
 Commands:
   start <flow> <task>  validate a flow and start a run
-  current <run-id>      print the current step from the snapshot
+  current <run-id>      print the current step from project files
   next <run-id> [--<field> <value>...]  report an outcome and advance the run
   rm <run-id>           delete a run
   runs [--all]          list active runs, or include finished runs
@@ -86,9 +86,8 @@ function start(argv: readonly string[], out: Output): number {
     const cwd = process.cwd();
     const flow = loadFlow(cwd, flowName);
     const run = saveStart(writeRoot(cwd), flow, flowName, task);
-    const step = flow.steps[run.step];
-    if (step === undefined) throw new Error(`Unknown start step '${run.step}'`);
-    out.stdout(startOutput(flow.description, stepOutput(run.step, step, run)));
+    const view = runView(run);
+    out.stdout(startOutput(flow.description, stepOutput(view.step, currentStep(run, flow), view)));
     return 0;
   } catch (error) {
     out.stderr(`stepan: ${error instanceof Error ? error.message : String(error)}\n`);
@@ -129,13 +128,13 @@ function current(argv: readonly string[], out: Output, remove = false): number {
       return 0;
     }
     const run = loadRun(root, id);
-    if (run.finished) {
+    const view = runView(run);
+    if (view.finished) {
       out.stdout(`Run ${id} is finished.\n`);
       return 0;
     }
-    const step = run.flow.steps[run.step];
-    if (step === undefined) throw new Error(`Unknown current step '${run.step}'`);
-    out.stdout(stepOutput(run.step, step, run));
+    const flow = runFlow(run);
+    out.stdout(stepOutput(view.step, currentStep(run, flow), view));
     return 0;
   } catch (error) {
     out.stderr(`stepan: ${error instanceof Error ? error.message : String(error)}\n`);
@@ -158,18 +157,25 @@ function next(argv: readonly string[], out: Output): number {
   if (id === undefined) return 2;
   try {
     const root = writeRoot(process.cwd());
-    const run = updateRun(root, id, (loaded) => {
-      const step = currentStep(loaded);
+    let response = '';
+    updateRun(root, id, (loaded) => {
+      if (runView(loaded).finished) throw new Error(`Run ${id} is finished.`);
+      const flow = runFlow(loaded);
+      const step = currentStep(loaded, flow);
       let outcome: Record<string, string>;
       try {
         outcome = parseNextOutcome(argv.slice(1), step);
       } catch (error) {
         throw new UsageError(error instanceof Error ? error.message : String(error));
       }
-      return advanceRun(loaded, outcome);
+      const updated = advanceRun(loaded, flow, outcome);
+      const view = runView(updated);
+      response = view.finished
+        ? `Run ${id} is finished.\n`
+        : stepOutput(view.step, currentStep(updated, flow), view);
+      return updated;
     });
-    if (run.finished) out.stdout(`Run ${id} is finished.\n`);
-    else out.stdout(stepOutput(run.step, currentStep(run), run));
+    out.stdout(response);
     return 0;
   } catch (error) {
     if (error instanceof UsageError) {
@@ -178,6 +184,17 @@ function next(argv: readonly string[], out: Output): number {
     }
     out.stderr(`stepan: ${error instanceof Error ? error.message : String(error)}\n`);
     return 1;
+  }
+}
+
+function runFlow(run: RunState): Flow {
+  try {
+    return loadFlow(process.cwd(), run.flowName);
+  } catch (error) {
+    throw new Error(
+      `Run ${run.id}, flow '${run.flowName}': ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
   }
 }
 

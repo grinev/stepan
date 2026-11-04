@@ -1,7 +1,7 @@
 import type { Step } from './flow.js';
-import type { RunState } from './run.js';
+import { runView, type RunState, type RunView } from './run.js';
 
-type InstructionContext = Pick<RunState, 'id' | 'task' | 'outcomes'>;
+type InstructionContext = Pick<RunView, 'id' | 'task' | 'outcomes'>;
 
 export function startOutput(description: string | undefined, step: string): string {
   if (description === undefined || description.length === 0) return step;
@@ -70,10 +70,11 @@ export function stepOutput(id: string, step: Step, context: InstructionContext):
 
 export function runsOutput(runs: RunState[], all: boolean): string {
   if (runs.length === 0) return all ? 'No runs.\n' : 'No active runs.\n';
-  const lines = runs.map((run) =>
-    [run.id, run.flowName, run.task, run.step, run.finished ? 'finished' : 'active']
+  const lines = runs.map((record) => {
+    const run = runView(record);
+    return [run.id, run.flowName, run.task, run.step, run.finished ? 'finished' : 'active']
       .map((value) => JSON.stringify(value))
-      .join('\t'),
-  );
+      .join('\t');
+  });
   return `ID\tFLOW\tTASK\tSTEP\tSTATUS\n${lines.join('\n')}\n`;
 }

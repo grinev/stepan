@@ -21,7 +21,7 @@ describe('validateFlow', () => {
     },
   );
 
-  it('normalizes optional fields and accepts empty instruction snapshots', () => {
+  it('normalizes optional fields and accepts empty instruction strings', () => {
     expect(validateFlow(definition({ instruction: '', outcome: null, transitions: [] }))).toEqual({
       start: 'first',
       steps: { first: { instruction: '', outcome: {}, transitions: [] } },

@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { RunState } from '../../src/run.js';
+import { runView, type RunState } from '../../src/run.js';
 import { createCli, runCli, runId, runPath, type CliSandbox } from './run-cli.js';
 
 interface Fixture extends CliSandbox {
@@ -104,7 +104,9 @@ steps:
         `Run: RUN-ID\nStep: review\n\nReviewer: ${reviewer}\nReport: [${report}]\n\nstepan next RUN-ID --reviewer "<text>" [--report "<text>"]\n`;
       success(cli, ['start', 'feature', TASK], output('-', '-'));
       current(cli, output('-', '-'));
-      expect(readRun(cli).flow.steps.review?.instruction).toBe(instruction);
+      expect(readFileSync(join(cli.cwd, '.stepan/flows/feature/review.md'), 'utf8')).toBe(
+        instruction,
+      );
       success(
         cli,
         ['next', cli.id, '--reviewer', 'ses_123', '--report', 'report.md'],
@@ -114,25 +116,19 @@ steps:
       success(cli, ['next', cli.id, '--reviewer', 'ses_123'], output('ses_123', '-'));
       success(cli, ['next', cli.id, '--reviewer', 'ses_123', '--report='], output('ses_123', ''));
       current(cli, output('ses_123', ''));
-      expect(readRun(cli).flow.steps.review?.instruction).toBe(instruction);
+      expect(readRun(cli).events).toHaveLength(4);
+      expect(readRun(cli).events[1]).toMatchObject({
+        outcome: { reviewer: 'ses_123', report: 'report.md' },
+      });
     },
   );
 
   it.each(['installed', 'sources'] as const)(
-    'renders task and latest outcomes from the unchanged %s snapshot',
+    'renders task and latest completed outcomes in %s mode',
     (layout) => {
       const cli = fixture(FLOW, INSTRUCTIONS, layout);
       success(cli, ['start', 'feature', TASK], planOutput());
-      const snapshot = readRun(cli).flow;
-      for (const [id, text] of Object.entries(INSTRUCTIONS)) {
-        expect(snapshot.steps[id]?.instruction).toBe(text);
-      }
-      current(cli, planOutput());
-
-      const directory = join(cli.cwd, '.stepan/flows/feature');
-      writeFileSync(join(directory, 'flow.yaml'), 'changed: true');
-      writeFileSync(join(directory, 'plan.md'), 'Changed instruction.');
-      writeFileSync(join(directory, 'review.md'), 'Changed review.');
+      expect(readRun(cli)).not.toHaveProperty('flow');
       current(cli, planOutput());
       expect(existsSync(join(cli.cwd, 'docs/first plan.md'))).toBe(false);
       success(
@@ -143,14 +139,13 @@ steps:
       current(cli, reviewOutput('docs/first plan.md', 'old note'));
       success(cli, ['next', cli.id, '--verdict=fail'], planOutput('docs/first plan.md'));
 
-      rmSync(join(cli.cwd, '.stepan/flows'), { recursive: true });
       success(
         cli,
         ['next', cli.id, '--path', 'docs/second plan.md'],
         reviewOutput('docs/second plan.md'),
       );
       current(cli, reviewOutput('docs/second plan.md'));
-      expect(readRun(cli).outcomes).toEqual({
+      expect(runView(readRun(cli)).outcomes).toEqual({
         plan: { path: 'docs/second plan.md' },
         review: { verdict: 'fail' },
       });
@@ -159,7 +154,9 @@ steps:
         ['next', cli.id, '--verdict=pass'],
         `Run: RUN-ID\nStep: finish\n\nFinish ${TASK}: pass.\n\nstepan next RUN-ID\n`,
       );
-      expect(readRun(cli).flow).toEqual(snapshot);
+      expect(readRun(cli).events[1]).toMatchObject({
+        outcome: { path: 'docs/first plan.md', note: 'old note' },
+      });
 
       const other =
         layout === 'sources' ? join(cli.cwd, '.stepan/runs') : join(cli.packageRoot, '.dev-data');
@@ -199,9 +196,9 @@ steps:
     const output = `Run: RUN-ID\nStep: loop\n\nTask: ${task}\nValue: ${value}\nEmpty: []\n${extra(value)}\n${exit}`;
     success(cli, ['next', cli.id, '--value', value, '--empty='], output);
     current(cli, output);
-    expect(readRun(cli).outcomes.loop).toEqual({ value, empty: '' });
+    expect(runView(readRun(cli)).outcomes.loop).toEqual({ value, empty: '' });
     expect(readRun(cli).task).toBe(task);
-    expect(readRun(cli).flow.steps.loop?.instruction).toBe(instruction);
+    expect(readRun(cli).events[1]).toMatchObject({ outcome: { value, empty: '' } });
   });
 
   it('keeps placeholder-like enum values literal in the exit template and inserted outcome', () => {
@@ -231,6 +228,8 @@ steps:
     const output = `Run: RUN-ID\nStep: choose\n\nTask TASK-5; last {{task}}.\n\n${exit}`;
     success(cli, ['next', cli.id, '--verdict', '{{task}}'], output);
     current(cli, output);
-    expect(readRun(cli).flow.steps.choose?.instruction).toBe(instruction);
+    expect(readFileSync(join(cli.cwd, '.stepan/flows/feature/choose.md'), 'utf8')).toBe(
+      instruction,
+    );
   });
 });

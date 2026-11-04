@@ -31,7 +31,7 @@ export function record(value: unknown, where: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function keys(value: Record<string, unknown>, allowed: string[], where: string): void {
+export function keys(value: Record<string, unknown>, allowed: string[], where: string): void {
   for (const key of Object.keys(value)) {
     if (!allowed.includes(key)) throw new Error(`${where}: unknown key '${key}'`);
   }
@@ -110,7 +110,7 @@ function transitions(
   });
 }
 
-/** Validates both a flow definition and the graph embedded in a run snapshot. */
+/** Validates a flow definition before instruction paths are loaded as text. */
 export function validateFlow(value: unknown): Flow {
   const flow = record(value, 'flow');
   keys(flow, ['description', 'start', 'steps'], 'flow');

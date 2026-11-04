@@ -45,16 +45,21 @@ function expectStep(cli: RunningCli, stdout?: string): void {
 
 describe('stepan current', () => {
   it.each(['installed', 'sources'] as const)(
-    'resumes the %s snapshot after flow changes or removal',
+    'reads current instructions and refuses missing %s flow files',
     (layout) => {
       const cli = fixture(layout);
       expectStep(cli);
       const directory = join(cli.cwd, '.stepan/flows/feature');
-      writeFileSync(join(directory, 'flow.yaml'), FLOW.replaceAll('plan', 'different'));
       writeFileSync(join(directory, 'plan.md'), 'Changed instruction.');
-      expectStep(cli);
+      expectStep(
+        cli,
+        `Run: ${cli.id}\nStep: plan\n\nChanged instruction.\n\nstepan next ${cli.id} --plan "<text>" [--note "<text>"] --verdict <pass|fail> [--reason <small|large>]\n`,
+      );
       rmSync(join(cli.cwd, '.stepan/flows'), { recursive: true });
-      expectStep(cli);
+      const before = readFileSync(cli.runPath, 'utf8');
+      expect(runCli(['current', cli.id], cli)).toMatchObject({ code: 1, stdout: '' });
+      expect(readFileSync(cli.runPath, 'utf8')).toBe(before);
+      expect(readdirSync(cli.runsDirectory)).toEqual([`${cli.id}.json`]);
       const other =
         layout === 'sources' ? join(cli.cwd, '.stepan/runs') : join(cli.packageRoot, '.dev-data');
       expect(existsSync(other)).toBe(false);
@@ -63,13 +68,15 @@ describe('stepan current', () => {
 
   it('prints the actual current step, including a final step without outcomes', () => {
     const cli = fixture();
-    writeFileSync(cli.runPath, JSON.stringify({ ...readRun(cli), step: 'finish' }));
-    expectStep(cli, `Run: ${cli.id}\nStep: finish\n\nFinish -.\n\nstepan next ${cli.id}\n`);
+    expect(runCli(['next', cli.id, '--plan=plan.md', '--verdict=pass'], cli).code).toBe(0);
+    expectStep(cli, `Run: ${cli.id}\nStep: finish\n\nFinish plan.md.\n\nstepan next ${cli.id}\n`);
   });
 
   it('reports completion with the run ID and exit code 0', () => {
     const cli = fixture();
-    writeFileSync(cli.runPath, JSON.stringify({ ...readRun(cli), finished: true }));
+    expect(runCli(['next', cli.id, '--plan=plan.md', '--verdict=pass'], cli).code).toBe(0);
+    expect(runCli(['next', cli.id], cli).code).toBe(0);
+    rmSync(join(cli.cwd, '.stepan/flows'), { recursive: true });
     expectStep(cli, `Run ${cli.id} is finished.\n`);
   });
 
@@ -92,12 +99,44 @@ describe('stepan current', () => {
       message: 'Unsupported run version',
     },
     {
-      change: (state: RunState) => JSON.stringify({ ...state, step: 'missing' }),
-      message: 'run.step',
+      change: (state: RunState) => JSON.stringify({ ...state, events: [] }),
+      message: 'run.events',
     },
     {
-      change: (state: RunState) => JSON.stringify({ ...state, finished: true, flow: null }),
+      change: (state: RunState) =>
+        JSON.stringify({
+          ...state,
+          events: [
+            ...state.events,
+            {
+              type: 'transitioned',
+              at: '2026-11-05T10:00:00.000Z',
+              from: 'other',
+              to: 'finish',
+              outcome: {},
+            },
+          ],
+        }),
+      message: 'run.events[1]: expected current step',
+    },
+    {
+      change: (state: RunState) =>
+        JSON.stringify({
+          ...state,
+          events: [
+            ...state.events,
+            { type: 'finished', at: 'not a timestamp', step: 'plan', outcome: {} },
+          ],
+        }),
+      message: 'run.events[1].at',
+    },
+    {
+      change: (state: RunState) => JSON.stringify({ ...state, flow: null }),
       message: 'flow',
+    },
+    {
+      change: (state: RunState) => JSON.stringify({ ...state, version: 1 }),
+      message: 'Unsupported run version: 1',
     },
     { change: (state: RunState) => JSON.stringify({ ...state, id: ID }), message: 'filename' },
   ])('refuses invalid state without changing it (%#)', ({ change, message }) => {

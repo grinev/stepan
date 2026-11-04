@@ -165,7 +165,7 @@ describe('rm and listing errors', () => {
     },
   );
 
-  it.each(['{broken', '{"version":99}'])(
+  it.each(['{broken', '{"version":99}', '{"version":1}'])(
     'reports damaged runs in the list and lets rm remove them (%#)',
     (text) => {
       const cli = fixture();
@@ -177,6 +177,9 @@ describe('rm and listing errors', () => {
         expect(result.stderr).toContain(run.runPath);
         expect(readFileSync(run.runPath, 'utf8')).toBe(text);
       }
+      const other = startCli(cli, 'new run beside damaged state');
+      expect(readFileSync(run.runPath, 'utf8')).toBe(text);
+      expect(runCli(['rm', other.id], cli).code).toBe(0);
       expect(runCli(['rm', run.id], cli)).toMatchObject({
         code: 0,
         stdout: `Run ${run.id} deleted.\n`,

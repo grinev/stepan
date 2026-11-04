@@ -66,20 +66,42 @@ Commit `.stepan/flows/` and ignore only `.stepan/runs/`, not the whole `.stepan/
 Source-mode state stays inside the ignored `.dev-data/`; it is not written alongside the input
 definitions. There is no global lookup or fallback to a top-level `flows/` directory.
 
-Runs use `<write root>/.stepan/runs/<run-id>.json`, format version 1. IDs are eight lowercase
+Runs use `<write root>/.stepan/runs/<run-id>.json`, format version 2. IDs are eight lowercase
 hex characters generated with `node:crypto.randomBytes(4)` and are validated before file access;
-the stored ID must match the filename. The file also stores `flowName` for listing, in addition
-to the task, step, finished flag, flow snapshot and outcomes. Every `start` creates a new run with
+the stored ID must match the filename. Persist only `version`, `id`, `flowName`, `task` and
+`events`. Every `start` creates a new run with
 exclusive creation (`wx`); a collision generates another ID, up to ten attempts, without replacing
 existing files. Finished runs are retained until explicitly deleted with `rm`.
 
+The exact event shapes and chain invariants are in [PRODUCT.md](../PRODUCT.md#run): one leading
+`started` (`at`, `step`), then `transitioned` (`at`, `from`, `to`, `outcome`) and optionally one
+terminal `finished` (`at`, `step`, `outcome`). Unknown keys and malformed histories are rejected.
+Timestamps are system-clock ISO 8601 UTC with milliseconds; array order, not clock monotonicity,
+orders events. Empty outcomes are stored too. Current step, status and latest completed outcomes
+are derived in memory, never serialized as caches. No flow text, graph or schema is persisted.
+JSON is for machine processing, not manual editing or append-only logging.
+
+Run validation does not load a flow or revalidate historical outcomes/edges against today's
+definitions: that would make an already recorded fact depend on a later edit. History records
+the visited path, not unvisited branches or the exact historical graph. Active `current` and
+`next` use the existing whole-flow loader on project files from the working directory. Missing
+files, invalid definitions or a removed current step are explicit errors; valid edits govern
+future execution. The format version is not a flow version; no hashes or automatic flow
+revision retention are provided. Version 1 and unknown run versions are unsupported, without
+migration or modification of existing files; an unrelated old run does not block `start`.
+
 `next` and `rm` take an exclusive `<write root>/.stepan/runs/<run-id>.lock`. Different runs
 do not share a lock. `next` reads the actual state, parses dynamic outcome flags against that
-state's current step, validates the outcome and writes the transition under the same lock.
+state's current step in the current project flow, validates the outcome and writes the transition
+under the same lock. The flow is loaded once and the response prepared before writing, so a
+later reload cannot fail after state has already advanced. The lock does not protect project
+definitions from external editors. An update preserves the header and all previous events and
+appends exactly one event; failed validation leaves run bytes unchanged.
 The store accepts a callback over current state; CLI parsing stays in `main`, not in the core.
 There is no preliminary snapshot read or externally supplied step argument.
 `rm` unlinks the selected file without parsing it, allowing damaged runs to be removed.
-`current` and `runs` only read and do not acquire locks or create directories.
+`current` and `runs` only read and do not acquire locks or create directories. Finished-run
+responses and listings do not need a flow definition.
 
 `runs` reads and validates run files, sorts by ID and filters finished runs unless `--all` is
 given. It ignores lock files, but reports invalid or unreadable run files instead of hiding them.

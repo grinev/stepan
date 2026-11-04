@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import {
   closeSync,
   mkdirSync,
@@ -9,8 +10,8 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { record, validateFlow, type Flow } from './flow.js';
-import { validateOutcome, type RunState } from './run.js';
+import { keys, record, type Flow } from './flow.js';
+import { runView, type RunEvent, type RunState } from './run.js';
 
 export function validateRunId(id: string): void {
   if (!/^[0-9a-f]{8}$/.test(id)) {
@@ -29,37 +30,79 @@ function runPath(root: string, id: string): string {
 
 export function validateRun(value: unknown): RunState {
   const run = record(value, 'run');
-  if (run.version !== 1) throw new Error(`Unsupported run version: ${String(run.version)}`);
+  if (run.version !== 2) throw new Error(`Unsupported run version: ${String(run.version)}`);
+  keys(run, ['version', 'id', 'flowName', 'task', 'events'], 'run');
   if (typeof run.id !== 'string') throw new Error('run.id: expected a run ID');
   validateRunId(run.id);
   if (typeof run.flowName !== 'string' || run.flowName.length === 0)
     throw new Error('run.flowName: expected a non-empty string');
   if (typeof run.task !== 'string' || run.task.length === 0)
     throw new Error('run.task: expected a non-empty string');
-  if (typeof run.finished !== 'boolean') throw new Error('run.finished: expected a boolean');
-  const flow = validateFlow(run.flow);
-  if (typeof run.step !== 'string' || !Object.hasOwn(flow.steps, run.step)) {
-    throw new Error('run.step: expected a step in the snapshot');
-  }
-  const outcomes = Object.fromEntries(
-    Object.entries(record(run.outcomes, 'run.outcomes')).map(
-      ([id, raw]): [string, Record<string, string>] => {
-        if (!Object.hasOwn(flow.steps, id)) throw new Error(`run.outcomes: unknown step '${id}'`);
-        const fields = flow.steps[id]?.outcome ?? {};
-        return [id, validateOutcome(raw, fields, `run.outcomes.${id}`)];
-      },
-    ),
-  );
+  if (!Array.isArray(run.events) || run.events.length === 0)
+    throw new Error('run.events: expected a non-empty array');
+  let step: string | undefined;
+  let finished = false;
+  const events = run.events.map((raw: unknown, index): RunEvent => {
+    const where = `run.events[${String(index)}]`;
+    const event = record(raw, where);
+    if (finished) throw new Error(`${where}: event after finished`);
+    if (
+      typeof event.at !== 'string' ||
+      !Number.isFinite(Date.parse(event.at)) ||
+      new Date(event.at).toISOString() !== event.at
+    )
+      throw new Error(`${where}.at: expected an ISO 8601 UTC timestamp with milliseconds`);
+    if (event.type === 'started') {
+      keys(event, ['type', 'at', 'step'], where);
+      if (index !== 0) throw new Error(`${where}: started must be the first and only start`);
+      step = eventName(event.step, `${where}.step`);
+      return { type: 'started', at: event.at, step };
+    }
+    if (step === undefined) throw new Error(`${where}: expected started as the first event`);
+    if (event.type !== 'transitioned' && event.type !== 'finished')
+      throw new Error(`${where}.type: unknown event type`);
+    keys(
+      event,
+      event.type === 'transitioned'
+        ? ['type', 'at', 'from', 'to', 'outcome']
+        : ['type', 'at', 'step', 'outcome'],
+      where,
+    );
+    const source = eventName(
+      event.type === 'transitioned' ? event.from : event.step,
+      `${where}.${event.type === 'transitioned' ? 'from' : 'step'}`,
+    );
+    if (source !== step)
+      throw new Error(`${where}: expected current step '${step}', got '${source}'`);
+    const outcome = Object.fromEntries(
+      Object.entries(record(event.outcome, `${where}.outcome`)).map(([field, entry]) => {
+        eventName(field, `${where}.outcome.${field}`);
+        if (typeof entry !== 'string')
+          throw new Error(`${where}.outcome.${field}: expected a string`);
+        return [field, entry];
+      }),
+    );
+    if (event.type === 'finished') {
+      finished = true;
+      return { type: 'finished', at: event.at, step, outcome };
+    }
+    const to = eventName(event.to, `${where}.to`);
+    step = to;
+    return { type: 'transitioned', at: event.at, from: source, to, outcome };
+  });
   return {
-    version: 1,
+    version: 2,
     id: run.id,
     flowName: run.flowName,
     task: run.task,
-    step: run.step,
-    finished: run.finished,
-    flow,
-    outcomes,
+    events,
   };
+}
+
+function eventName(value: unknown, where: string): string {
+  if (typeof value !== 'string' || !/^[A-Za-z][A-Za-z0-9_-]*$/.test(value))
+    throw new Error(`${where}: expected a step or field name`);
+  return value;
 }
 
 function readRun(root: string, id: string): RunState {
@@ -110,14 +153,11 @@ function withRunLock<T>(root: string, id: string, action: () => T): T {
 export function saveStart(root: string, flow: Flow, flowName: string, task: string): RunState {
   for (let attempt = 0; attempt < 10; attempt++) {
     const run = validateRun({
-      version: 1,
+      version: 2,
       id: randomBytes(4).toString('hex'),
       flowName,
       task,
-      step: flow.start,
-      finished: false,
-      flow,
-      outcomes: {},
+      events: [{ type: 'started', at: new Date().toISOString(), step: flow.start }],
     });
     mkdirSync(join(root, '.stepan', 'runs'), { recursive: true });
     try {
@@ -133,8 +173,13 @@ export function saveStart(root: string, flow: Flow, flowName: string, task: stri
 export function updateRun(root: string, id: string, update: (run: RunState) => RunState): RunState {
   validateRunId(id);
   return withRunLock(root, id, () => {
-    const run = validateRun(update(readRun(root, id)));
-    if (run.id !== id) throw new Error('Cannot change run ID');
+    const before = readRun(root, id);
+    const run = validateRun(update(structuredClone(before)));
+    const { events: previous, ...header } = before;
+    const { events, ...updatedHeader } = run;
+    if (!isDeepStrictEqual(header, updatedHeader)) throw new Error('Cannot change run header');
+    if (events.length !== previous.length + 1 || !isDeepStrictEqual(events.slice(0, -1), previous))
+      throw new Error('An update must preserve history and append exactly one event');
     writeFileSync(runPath(root, id), `${JSON.stringify(run, null, 2)}\n`);
     return run;
   });
@@ -175,5 +220,5 @@ export function listRuns(root: string, all = false): RunState[] {
       }
       return readRun(root, id);
     })
-    .filter((run) => all || !run.finished);
+    .filter((run) => all || !runView(run).finished);
 }

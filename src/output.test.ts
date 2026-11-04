@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { runsOutput, startOutput, stepOutput } from './output.js';
-import { validateFlow, type Step } from './flow.js';
-import type { RunState } from './run.js';
+import type { Step } from './flow.js';
+import type { RunState, RunView } from './run.js';
 
 const ID = 'a7c93f2b';
 const HEADER = `Run: ${ID}\nStep: review\n\n`;
 const EXIT = `stepan next ${ID}`;
-const context: Pick<RunState, 'id' | 'task' | 'outcomes'> = {
+const context: Pick<RunView, 'id' | 'task' | 'outcomes'> = {
   id: ID,
   task: 'TASK-1',
   outcomes: { plan: { path: 'docs/plan.md', note: '', verdict: 'pass' } },
@@ -179,7 +179,7 @@ describe('output', () => {
     ).toBe(`${HEADER}${path}${path.endsWith('\n') ? '' : '\n'}\n${EXIT}\n`);
   });
 
-  it('keeps the snapshot and context unchanged and substitutes only the instruction', () => {
+  it('keeps the instruction and context unchanged and substitutes only the instruction', () => {
     const step: Step = {
       instruction: '{{task}}: {{steps.plan.outcome.path}}',
       outcome: { verdict: { type: 'enum', values: ['{{task}}'], required: true } },
@@ -195,18 +195,26 @@ describe('output', () => {
   it('prints empty lists and escapes multiline table cells', () => {
     expect(runsOutput([], false)).toBe('No active runs.\n');
     expect(runsOutput([], true)).toBe('No runs.\n');
-    const flow = validateFlow({ start: 'done', steps: { done: { instruction: '' } } });
     const run: RunState = {
-      version: 1,
+      version: 2,
       id: ID,
       flowName: 'feature',
       task: 'one\ntwo\t"three"',
-      step: 'done',
-      finished: false,
-      flow,
-      outcomes: {},
+      events: [{ type: 'started', step: 'done', at: '2026-11-05T10:00:00.000Z' }],
     };
-    const output = runsOutput([run, { ...run, finished: true }], true);
+    const output = runsOutput(
+      [
+        run,
+        {
+          ...run,
+          events: [
+            ...run.events,
+            { type: 'finished', step: 'done', at: '2026-11-05T10:01:00.000Z', outcome: {} },
+          ],
+        },
+      ],
+      true,
+    );
     expect(output.split('\n')).toHaveLength(4);
     expect(output).toContain(JSON.stringify(run.task));
     expect(output).toContain('"active"');

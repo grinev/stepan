@@ -22,7 +22,7 @@ import {
   validateRun,
   validateRunId,
 } from './run-store.js';
-import { advanceRun, type RunState } from './run.js';
+import { advanceRun, runView, type RunEvent, type RunState } from './run.js';
 
 // Native ESM exports cannot be spied on directly; keep real I/O behind configurable facades.
 vi.mock('node:fs', async (original) => ({ ...(await original<typeof import('node:fs')>()) }));
@@ -43,16 +43,17 @@ const flow = validateFlow({
     last: { instruction: 'Last.' },
   },
 });
-function state(): RunState {
+const AT = '2026-11-05T10:00:00.000Z';
+function state(finished = false): RunState {
   return {
-    version: 1,
+    version: 2,
     id: ID,
     flowName: 'feature',
     task: 'TASK-1',
-    step: 'first',
-    finished: false,
-    flow,
-    outcomes: {},
+    events: [
+      { type: 'started', at: AT, step: 'first' },
+      ...(finished ? [{ type: 'finished' as const, at: AT, step: 'first', outcome: {} }] : []),
+    ],
   };
 }
 const directories: string[] = [];
@@ -78,64 +79,89 @@ function put(root: string, text = JSON.stringify(state())): void {
 }
 
 describe('validateRun', () => {
-  it.each(['', 'Context\nwith two lines'])('retains snapshot descriptions (%#)', (description) => {
-    const run = { ...state(), flow: { ...flow, description } };
-    expect(validateRun(run)).toEqual(run);
-  });
-
-  it('accepts snapshots and completed outcomes', () => {
+  it('accepts history without consulting a flow', () => {
     expect(validateRun(state())).toEqual(state());
-    const value = { ...state(), finished: true, outcomes: { first: { note: 'saved' }, last: {} } };
+    const value = state(true);
     expect(validateRun(value)).toEqual(value);
+    expect(Object.keys(value)).toEqual(['version', 'id', 'flowName', 'task', 'events']);
   });
 
   it.each([
     [null, 'run'],
+    [{ ...state(), version: 1 }, 'Unsupported run version: 1'],
     [{ ...state(), version: 99 }, 'version'],
     [{ ...state(), id: null }, 'run.id'],
     [{ ...state(), id: '../escape' }, 'hex'],
     [{ ...state(), flowName: '' }, 'flowName'],
     [{ ...state(), task: '' }, 'task'],
-    [{ ...state(), finished: 'yes' }, 'finished'],
-    [{ ...state(), flow: null }, 'flow'],
-    [{ ...state(), flow: { ...flow, description: null } }, 'flow.description'],
-    [{ ...state(), step: 'constructor' }, 'step'],
-    [{ ...state(), outcomes: null }, 'outcomes'],
-    [{ ...state(), outcomes: { missing: {} } }, 'unknown step'],
-    [{ ...state(), outcomes: { first: [] } }, 'outcomes.first'],
-    [{ ...state(), outcomes: { first: { extra: 'x' } } }, 'unknown field'],
+    [{ ...state(), flow: {} }, "unknown key 'flow'"],
+    [{ ...state(), step: 'first' }, "unknown key 'step'"],
+    [{ ...state(), finished: false }, "unknown key 'finished'"],
+    [{ ...state(), outcomes: {} }, "unknown key 'outcomes'"],
+    [{ ...state(), events: null }, 'run.events'],
+    [{ ...state(), events: [] }, 'run.events'],
   ])('rejects invalid state (%#)', (value, message) => {
     expect(() => validateRun(value)).toThrow(message);
   });
 
-  it.each([{}, { verdict: '' }, { verdict: 1 }, { verdict: 'fail' }])(
-    'validates stored outcomes against their snapshot (%#)',
-    (outcome) => {
-      const graph = validateFlow({
-        start: 'first',
-        steps: {
-          first: {
-            instruction: '',
-            outcome: { verdict: { type: 'enum', values: ['pass'], required: true } },
-          },
-        },
-      });
-      expect(() =>
-        validateRun({ ...state(), flow: graph, outcomes: { first: outcome } }),
-      ).toThrow();
-    },
-  );
-
-  it('does not treat inherited values as stored outcome fields', () => {
-    const graph = validateFlow({
-      start: 'first',
-      steps: {
-        first: { instruction: '', outcome: { constructor: { type: 'string', required: true } } },
-      },
-    });
-    expect(() => validateRun({ ...state(), flow: graph, outcomes: { first: {} } })).toThrow(
-      'constructor: required',
+  it.each([
+    [null, 'expected an object'],
+    [{ type: 'started', at: AT, step: 'first' }, 'first and only start'],
+    [{ type: 'other', at: AT }, 'unknown event type'],
+    [{ type: 'finished', at: AT, step: 'other', outcome: {} }, 'expected current step'],
+    [
+      { type: 'transitioned', at: AT, from: 'other', to: 'first', outcome: {} },
+      'expected current step',
+    ],
+    [{ type: 'transitioned', at: AT, from: 'first', to: '1bad', outcome: {} }, '.to'],
+    [{ type: 'finished', at: AT, step: 'first', outcome: [] }, '.outcome'],
+    [{ type: 'finished', at: AT, step: 'first', outcome: { note: 1 } }, '.outcome.note'],
+    [{ type: 'finished', at: AT, step: 'first', outcome: { '1bad': '' } }, '.outcome.1bad'],
+    [{ type: 'finished', at: AT, step: 'first', outcome: {}, extra: true }, "unknown key 'extra'"],
+    [{ type: 'finished', at: 'yesterday', step: 'first', outcome: {} }, '.at'],
+    [{ type: 'finished', at: '2026-02-30T00:00:00.000Z', step: 'first', outcome: {} }, '.at'],
+    [{ type: 'finished', at: '2026-11-05T10:00:00Z', step: 'first', outcome: {} }, '.at'],
+  ])('rejects an invalid event with its index (%#)', (event, message) => {
+    expect(() => validateRun({ ...state(), events: [...state().events, event] })).toThrow(message);
+    expect(() => validateRun({ ...state(), events: [...state().events, event] })).toThrow(
+      'run.events[1]',
     );
+  });
+
+  it.each([
+    [{ type: 'finished', at: AT, step: 'first', outcome: {} }],
+    [{ type: 'started', at: AT, step: '1bad' }],
+    [{ type: 'started', at: AT, step: 'first', extra: true }],
+    [...state(true).events, { type: 'finished', at: AT, step: 'first', outcome: {} }],
+    [
+      ...state(true).events,
+      { type: 'transitioned', at: AT, from: 'first', to: 'last', outcome: {} },
+    ],
+  ])('rejects malformed starts and events after finish (%#)', (...events) => {
+    expect(() => validateRun({ ...state(), events })).toThrow('run.events');
+  });
+
+  it('retains historical fields, prototype names and equal or decreasing timestamps', () => {
+    const events: RunEvent[] = [
+      ...state().events,
+      {
+        type: 'transitioned',
+        at: AT,
+        from: 'first',
+        to: 'constructor',
+        outcome: { formerField: 'old enum value\ntext' },
+      },
+      {
+        type: 'finished',
+        at: '2026-11-05T09:00:00.000Z',
+        step: 'constructor',
+        outcome: { constructor: '', toString: 'own' },
+      },
+    ];
+    const value = { ...state(), events };
+    const validated = validateRun(value);
+    expect(validated).toEqual(value);
+    expect(runView(validated).outcomes.constructor).toEqual({ constructor: '', toString: 'own' });
   });
 });
 
@@ -167,16 +193,16 @@ describe('addressed storage', () => {
 
   it.each([false, true])('reads without writing (finished=%s)', (finished) => {
     const directory = root();
-    const text = JSON.stringify({ ...state(), finished });
+    const text = JSON.stringify(state(finished));
     put(directory, text);
-    expect(loadRun(directory, ID)).toEqual({ ...state(), finished });
+    expect(loadRun(directory, ID)).toEqual(state(finished));
     expect(readFileSync(path(directory), 'utf8')).toBe(text);
     expect(readdirSync(join(directory, '.stepan/runs'))).toEqual([`${ID}.json`]);
   });
 
   it('creates independent files and preserves finished runs', () => {
     const directory = root();
-    put(directory, JSON.stringify({ ...state(), finished: true }));
+    put(directory, JSON.stringify(state(true)));
     const before = readFileSync(path(directory), 'utf8');
     const one = saveStart(directory, flow, 'feature', 'TASK-1');
     const two = saveStart(directory, flow, 'feature', 'TASK-1');
@@ -261,10 +287,7 @@ describe('addressed storage', () => {
   it('lists in ID order, filters finished runs and ignores locks', () => {
     const directory = root();
     put(directory);
-    writeFileSync(
-      path(directory, OTHER),
-      JSON.stringify({ ...state(), id: OTHER, finished: true }),
-    );
+    writeFileSync(path(directory, OTHER), JSON.stringify({ ...state(true), id: OTHER }));
     writeFileSync(lock(directory), 'busy');
     expect(listRuns(directory).map((run) => run.id)).toEqual([ID]);
     expect(listRuns(directory, true).map((run) => run.id)).toEqual([ID, OTHER]);
@@ -305,7 +328,7 @@ describe('addressed storage', () => {
 
   it.each([false, true])('removes a selected run (finished=%s)', (finished) => {
     const directory = root();
-    put(directory, JSON.stringify({ ...state(), finished }));
+    put(directory, JSON.stringify(state(finished)));
     const other = saveStart(directory, flow, 'feature', 'other');
     const before = readFileSync(path(directory, other.id), 'utf8');
     removeRun(directory, ID);
@@ -323,14 +346,18 @@ describe('locked updates', () => {
   it('saves transitions and completion, releasing the lock on failure too', () => {
     const directory = root();
     put(directory);
-    expect(updateRun(directory, ID, (run) => advanceRun(run, { note: 'value' }))).toMatchObject({
+    expect(
+      runView(updateRun(directory, ID, (run) => advanceRun(run, flow, { note: 'value' }))),
+    ).toMatchObject({
       step: 'last',
       outcomes: { first: { note: 'value' } },
     });
-    const finished = updateRun(directory, ID, (run) => advanceRun(run, {}));
-    expect(finished.finished).toBe(true);
+    const finished = updateRun(directory, ID, (run) => advanceRun(run, flow, {}));
+    expect(runView(finished).finished).toBe(true);
     const before = loadBytes(directory);
-    expect(() => updateRun(directory, ID, (run) => advanceRun(run, {}))).toThrow('is finished');
+    expect(() => updateRun(directory, ID, (run) => advanceRun(run, flow, {}))).toThrow(
+      'is finished',
+    );
     expect(loadBytes(directory)).toBe(before);
     expect(existsSync(lock(directory))).toBe(false);
   });
@@ -341,15 +368,16 @@ describe('locked updates', () => {
     const open = fs.openSync;
     vi.spyOn(fs, 'openSync').mockImplementation((...args: Parameters<typeof fs.openSync>) => {
       const descriptor = open(...args);
-      if (args[0] === lock(directory)) put(directory, JSON.stringify({ ...state(), step: 'last' }));
+      if (args[0] === lock(directory))
+        put(directory, JSON.stringify(advanceRun(state(), flow, {})));
       return descriptor;
     });
     updateRun(directory, ID, (run) => {
-      expect(run.step).toBe('last');
+      expect(runView(run).step).toBe('last');
       expect(existsSync(lock(directory))).toBe(true);
-      return advanceRun(run, {});
+      return advanceRun(run, flow, {});
     });
-    expect(loadRun(directory, ID).finished).toBe(true);
+    expect(runView(loadRun(directory, ID)).finished).toBe(true);
   });
 
   it('blocks competing writers for the same run but not other runs or starts', () => {
@@ -362,10 +390,10 @@ describe('locked updates', () => {
         removeRun(directory, ID);
       }).toThrow('Another command');
       expect(existsSync(lock(directory))).toBe(true);
-      updateRun(directory, other.id, (value) => advanceRun(value, {}));
+      updateRun(directory, other.id, (value) => advanceRun(value, flow, {}));
       removeRun(directory, other.id);
       expect(saveStart(directory, flow, 'feature', 'new').id).not.toBe(ID);
-      return advanceRun(run, {});
+      return advanceRun(run, flow, {});
     });
     expect(existsSync(lock(directory))).toBe(false);
   });
@@ -374,8 +402,16 @@ describe('locked updates', () => {
     const directory = root();
     put(directory);
     for (const update of [
-      (run: RunState) => advanceRun(run, { extra: 'x' }),
+      (run: RunState) => advanceRun(run, flow, { extra: 'x' }),
       (run: RunState) => ({ ...run, id: OTHER }),
+      (run: RunState) => ({ ...advanceRun(run, flow, {}), task: 'changed' }),
+      (run: RunState) => ({ ...advanceRun(run, flow, {}), flowName: 'other' }),
+      (run: RunState) => run,
+      (run: RunState) => {
+        run.events[0] = { type: 'started', at: '2026-11-05T09:00:00.000Z', step: 'first' };
+        return advanceRun(run, flow, {});
+      },
+      (run: RunState) => advanceRun(advanceRun(run, flow, {}), flow, {}),
       () => {
         throw new Error('Usage error');
       },
@@ -411,7 +447,9 @@ describe('locked updates', () => {
         write(...args);
       },
     );
-    expect(() => updateRun(directory, ID, (run) => advanceRun(run, {}))).toThrow('Write failed');
+    expect(() => updateRun(directory, ID, (run) => advanceRun(run, flow, {}))).toThrow(
+      'Write failed',
+    );
     expect(loadBytes(directory)).toBe(before);
     expect(existsSync(lock(directory))).toBe(false);
   });
