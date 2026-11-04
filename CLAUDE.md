@@ -26,8 +26,10 @@ with any tracker and any harness that has a shell.
 
 ## Always
 
-- Before code review and before a commit — `npm run check`; not before plan review. Write the
-  output of every run whole to a file in the session scratchpad (`npm run check > <file> 2>&1`),
+- Before code review — `npm run check`. Before a commit, run it only when code, tests,
+  dependencies or build/check configuration changed; documentation-, plan- or prompt-only commits
+  do not need it. Do not run it before plan review. Write the output of every run whole to a file
+  in the session scratchpad (`npm run check > <file> 2>&1`),
   no `tail`/`grep` in the same command; investigate from that file instead of re-running. A test
   that failed and passed on retry is flaky — find and fix it.
 - User-visible behaviour gets an e2e test through `runCli`; logic with a real branch gets a unit
