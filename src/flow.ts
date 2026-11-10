@@ -162,6 +162,27 @@ export function loadFlow(cwd: string, flowName: string): Flow {
   ) {
     throw new Error(`Invalid flow name '${flowName}': expected a directory under .stepan/flows/`);
   }
+  const flow = readFlowDefinition(directory);
+  return {
+    ...flow,
+    steps: Object.fromEntries(
+      Object.entries(flow.steps).map(([id, step]): [string, Step] => {
+        const file = resolve(directory, step.instruction);
+        try {
+          return [id, { ...step, instruction: readFileSync(file, 'utf8') }];
+        } catch (error) {
+          throw new Error(
+            `steps.${id}.instruction (${file}): ${error instanceof Error ? error.message : String(error)}`,
+            { cause: error },
+          );
+        }
+      }),
+    ),
+  };
+}
+
+/** Reads and validates the definition without opening any instruction paths. */
+export function readFlowDefinition(directory: string): Flow {
   const yamlPath = resolve(directory, 'flow.yaml');
   const document = parseDocument(readFileSync(yamlPath, 'utf8'), { schema: 'core' });
   const problem = document.errors[0] ?? document.warnings[0];
@@ -189,22 +210,5 @@ export function loadFlow(cwd: string, flowName: string): Flow {
     },
   });
   const parsed: unknown = document.toJS({ maxAliasCount: 100 });
-  const flow = validateFlow(parsed);
-  return {
-    ...(flow.description === undefined ? {} : { description: flow.description }),
-    start: flow.start,
-    steps: Object.fromEntries(
-      Object.entries(flow.steps).map(([id, step]): [string, Step] => {
-        const file = resolve(directory, step.instruction);
-        try {
-          return [id, { ...step, instruction: readFileSync(file, 'utf8') }];
-        } catch (error) {
-          throw new Error(
-            `steps.${id}.instruction (${file}): ${error instanceof Error ? error.message : String(error)}`,
-            { cause: error },
-          );
-        }
-      }),
-    ),
-  };
+  return validateFlow(parsed);
 }

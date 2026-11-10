@@ -5,6 +5,13 @@ import { runsOutput, startOutput, stepOutput } from './output.js';
 import { removeRun, listRuns, loadRun, saveStart, updateRun, validateRunId } from './run-store.js';
 import { advanceRun, currentStep, runView, type RunState } from './run.js';
 import { writeRoot } from './write-root.js';
+import {
+  installFlows,
+  installSource,
+  validateInstallPath,
+  validateInstallRef,
+  type InstallOptions,
+} from './install.js';
 
 export interface Output {
   stdout: (text: string) => void;
@@ -14,6 +21,7 @@ export interface Output {
 const USAGE = `Usage: stepan <command>
 
 Commands:
+  install <source> [--flow <name>] [--ref <ref>]  install project flows from Git
   start <flow> <task>  validate a flow and start a run
   current <run-id>      print the current step from project files
   next <run-id> [--<field> <value>...]  report an outcome and advance the run
@@ -30,6 +38,8 @@ const CURRENT_USAGE = 'Usage: stepan current <run-id>\n';
 const NEXT_USAGE = 'Usage: stepan next <run-id> [--<field> <value>...]\n';
 const RM_USAGE = 'Usage: stepan rm <run-id>\n';
 const RUNS_USAGE = 'Usage: stepan runs [--all]\n';
+const INSTALL_USAGE =
+  'Usage: stepan install <source> [--flow <name>] [--ref <branch|tag|commit>]\n';
 
 class UsageError extends Error {}
 
@@ -52,9 +62,60 @@ export function run(argv: readonly string[], out: Output): number {
   if (first === 'next') return next(argv.slice(1), out);
   if (first === 'rm') return current(argv.slice(1), out, true);
   if (first === 'runs') return runs(argv.slice(1), out);
+  if (first === 'install') return install(argv.slice(1), out);
 
   out.stderr(`stepan: unknown command '${first}'\n\n${USAGE}`);
   return 2;
+}
+
+function install(argv: readonly string[], out: Output): number {
+  let source: string;
+  let options: InstallOptions;
+  try {
+    const args = parseArgs({
+      args: [...argv],
+      allowPositionals: true,
+      tokens: true,
+      options: {
+        help: { type: 'boolean', short: 'h' },
+        flow: { type: 'string' },
+        ref: { type: 'string' },
+      },
+    });
+    const names = args.tokens.filter((token) => token.kind === 'option').map((token) => token.name);
+    if (new Set(names).size !== names.length) throw new Error('Repeated option');
+    if (args.values.help === true) {
+      if (argv.length !== 1) throw new Error('Help must stand alone');
+      out.stdout(INSTALL_USAGE);
+      return 0;
+    }
+    if (args.positionals.length !== 1) throw new Error('Expected a Git source');
+    source = args.positionals[0] ?? '';
+    installSource(source);
+    options = {};
+    if (args.values.flow !== undefined) {
+      validateInstallPath(args.values.flow);
+      if (args.values.flow.includes('/'))
+        throw new Error('Expected --flow to name one flow directory');
+      options.flow = args.values.flow;
+    }
+    if (args.values.ref !== undefined) {
+      validateInstallRef(args.values.ref);
+      options.ref = args.values.ref;
+    }
+  } catch (error) {
+    out.stderr(
+      `stepan: ${error instanceof Error ? error.message : String(error)}\n${INSTALL_USAGE}`,
+    );
+    return 2;
+  }
+  try {
+    out.stdout(installFlows(writeRoot(process.cwd()), source, options));
+    return 0;
+  } catch (error) {
+    out.stderr(`stepan: ${error instanceof Error ? error.message : String(error)}\n`);
+    return 1;
+  }
 }
 
 function start(argv: readonly string[], out: Output): number {

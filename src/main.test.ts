@@ -4,6 +4,7 @@ import * as store from './run-store.js';
 import { advanceRun, type RunState } from './run.js';
 import * as flows from './flow.js';
 import * as roots from './write-root.js';
+import * as installer from './install.js';
 
 const ID = 'a7c93f2b';
 function capture(argv: string[]) {
@@ -56,6 +57,7 @@ beforeEach(() => {
   vi.spyOn(store, 'removeRun').mockImplementation(() => undefined);
   vi.spyOn(store, 'listRuns').mockReturnValue([]);
   vi.spyOn(flows, 'loadFlow').mockReturnValue(flow);
+  vi.spyOn(installer, 'installFlows').mockReturnValue('Installed.\n');
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -70,7 +72,7 @@ describe('run', () => {
     expect(capture(['abort', ID])).toMatchObject({ code: 2, stdout: '' });
   });
 
-  it.each(['start', 'current', 'next', 'rm', 'runs'])(
+  it.each(['install', 'start', 'current', 'next', 'rm', 'runs'])(
     'prints standalone help for %s without I/O',
     (command) => {
       for (const flag of ['-h', '--help']) {
@@ -103,9 +105,43 @@ describe('run', () => {
     ['runs', 'extra'],
     ['runs', '--help', '--all'],
     ['runs', '--unknown'],
+    ['install'],
+    ['install', 'owner/repo', '--unknown'],
+    ['install', '--help', 'owner/repo'],
+    ['install', 'owner/repo', '--ref='],
+    ['install', 'owner/repo', '--flow='],
+    ['install', 'owner/repo', '--flow', 'a/b'],
+    ['install', 'owner/repo', '--ref', 'main', '--ref', 'main'],
   ])('rejects bad command arguments before accessing state (%#)', (...args) => {
     expect(capture(args)).toMatchObject({ code: 2, stdout: '' });
     expect(roots.writeRoot).not.toHaveBeenCalled();
+  });
+});
+
+describe('install', () => {
+  it('passes the selected source, flow and ref to the isolated installer', () => {
+    expect(capture(['install', 'owner/repo', '--flow', 'example', '--ref', 'v1'])).toEqual({
+      code: 0,
+      stdout: 'Installed.\n',
+      stderr: '',
+    });
+    expect(installer.installFlows).toHaveBeenCalledWith('isolated-root', 'owner/repo', {
+      flow: 'example',
+      ref: 'v1',
+    });
+  });
+
+  it('passes default selection and reports failures without success output', () => {
+    expect(capture(['install', 'owner/repo'])).toMatchObject({ code: 0 });
+    expect(installer.installFlows).toHaveBeenCalledWith('isolated-root', 'owner/repo', {});
+    vi.mocked(installer.installFlows).mockImplementation(() => {
+      throw new Error('Install failed');
+    });
+    expect(capture(['install', 'owner/repo'])).toEqual({
+      code: 1,
+      stdout: '',
+      stderr: 'stepan: Install failed\n',
+    });
   });
 });
 

@@ -3,6 +3,7 @@
 ## Setup
 
 Node.js 22 or newer, npm.
+Git on PATH is needed for `install` and its tests, not for executing local flows.
 
 ```sh
 npm install
@@ -37,6 +38,13 @@ an invalid schema. Keys must resolve to strings and remain unique, including ali
   behaviour gets an e2e test.
 - `test/build.global-setup.ts` builds `dist/` once before the suite, so e2e never runs a stale
   build.
+- Install tests create local Git repositories inside their sandbox, with a private
+  global Git config and `GIT_CONFIG_NOSYSTEM=1`. GitHub/HTTPS source tests use
+  `url.*.insteadOf` to map to local repositories; no network or maintainer config
+  is needed. Test-only Node preloads inject timeout and filesystem errors in the
+  child CLI, without adding production fault-injection flags. The copy of the
+  collection's example in `test/fixtures/example/` is an offline fixture, not a
+  built-in flow; keep it aligned when the collection's example changes.
 
 ## Where Stepan writes, by who runs it
 
@@ -60,6 +68,31 @@ installed packages use the working directory. Flow input is always read from
 An instruction path such as `steps/<file>.md` is relative to that flow directory; Stepan does not
 search for it elsewhere.
 Every later write location must use this same resolver.
+
+`install` also uses `writeRoot`: installed definitions go to
+`<write root>/.stepan/flows/`, and temporary bare Git/staging directories live
+at `<write root>/.stepan/.install-<random>/`. The latter are removed in `finally`;
+ordinary copy failures attempt rollback of the new flow directories only.
+Cleanup/rollback failures are explicit errors; empty parent directories may remain.
+This is not a crash-atomic transaction. No global state, provenance file, run or
+harness settings are created by installation. Existing flow directories and
+symlink/junction destination parents are refused.
+
+The installer reads Git objects without checkout to avoid configured smudge
+filters. Every Git invocation also overrides `core.hooksPath` to a nonexistent
+path in its private temporary tree: a bare clone still updates references and
+can otherwise run the user's `reference-transaction` hook. Terminal/askpass
+prompts are disabled; SSH is explicitly noninteractive OpenSSH with strict
+host-key checking rather than a custom Git SSH wrapper. It validates portable paths and instruction boundaries
+before loading staged instructions. `readFlowDefinition` shares YAML AST validation
+with the normal loader without opening instruction files. These restrictions
+apply to installation, not to manually authored project flows. A successful install
+does not imply third-party instructions are safe for an agent to follow.
+
+Source-mode installation does not change the normal cwd-only flow lookup. To
+walk a flow installed from sources, change cwd to the checkout's `.dev-data/`
+and invoke `node ../dist/cli.js start <name> <task>` after building. From another
+project, source-mode installation still writes only to the executable's checkout.
 
 Definitions and state share `.stepan/` to avoid reserving a generic top-level `flows/` directory.
 Commit `.stepan/flows/` and ignore only `.stepan/runs/`, not the whole `.stepan/` directory.

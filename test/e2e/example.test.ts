@@ -1,11 +1,12 @@
-import { copyFileSync, mkdirSync, readdirSync } from 'node:fs';
+import { readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { createCli, runCli, runId } from './run-cli.js';
+import { commitFixture, exampleFixture, gitRepository } from './git-fixture.js';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
-const EXAMPLE = join(ROOT, '.stepan/flows/example');
+const EXAMPLE = join(ROOT, 'test/fixtures/example');
 
 function markdownBesideFlow(directory: string): string[] {
   return readdirSync(directory).filter((name) => name.endsWith('.md'));
@@ -21,17 +22,19 @@ describe('repository example', () => {
   });
 
   it.each(['installed', 'sources'] as const)(
-    'walks the shipped example through review rework and completion in %s mode',
+    'installs the example and walks review rework and completion offline in %s mode',
     (layout) => {
       const cli = createCli(layout);
+      const { repo, url } = gitRepository(cli);
+      exampleFixture(repo);
+      commitFixture(cli, repo);
+      expect(runCli(['install', url, '--flow', 'example'], cli)).toMatchObject({
+        code: 0,
+        stderr: '',
+      });
+      rmSync(repo, { recursive: true, force: true });
+      cli.cwd = cli.root;
       const directory = join(cli.cwd, '.stepan/flows/example');
-      const steps = join(directory, 'steps');
-      mkdirSync(steps, { recursive: true });
-      // Node 22's native recursive cpSync corrupts non-ASCII destination paths on Windows.
-      copyFileSync(join(EXAMPLE, 'flow.yaml'), join(directory, 'flow.yaml'));
-      for (const file of readdirSync(join(EXAMPLE, 'steps'))) {
-        copyFileSync(join(EXAMPLE, 'steps', file), join(steps, file));
-      }
       expect(readdirSync(directory)).toContain('flow.yaml');
       expect(markdownBesideFlow(directory)).toEqual([]);
 

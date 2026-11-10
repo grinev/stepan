@@ -27,6 +27,8 @@ export interface CliSandbox {
   packageRoot: string;
   root: string;
   runsDirectory: string;
+  env?: NodeJS.ProcessEnv;
+  nodeArgs?: string[];
 }
 
 /** Copy the executable and its runtime dependency so even source-mode writes stay isolated. */
@@ -88,7 +90,7 @@ export function runCli(
   options?: { async: true },
 ): CliResult | Promise<CliResult> {
   const { sandbox, cwd, packageRoot } = cli;
-  const commandArgs = [join(packageRoot, 'dist/cli.js'), ...args];
+  const commandArgs = [...(cli.nodeArgs ?? []), join(packageRoot, 'dist/cli.js'), ...args];
   const settings = {
     cwd,
     env: {
@@ -101,6 +103,9 @@ export function runCli(
       XDG_CONFIG_HOME: join(sandbox, '.config'),
       XDG_DATA_HOME: join(sandbox, '.local', 'share'),
       XDG_STATE_HOME: join(sandbox, '.local', 'state'),
+      GIT_CONFIG_NOSYSTEM: '1',
+      GIT_CONFIG_GLOBAL: join(sandbox, '.gitconfig'),
+      ...cli.env,
     },
   };
   if (options?.async === true) {

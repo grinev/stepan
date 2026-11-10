@@ -3,7 +3,7 @@
 What Stepan is and how it behaves. This file describes the current intent; it is not a gate. A
 change that goes beyond it updates it in the same change.
 
-**State:** 0.1 is specified below; `start`, `current`, `next`, `rm`, `runs`, independent
+**State:** 0.1 is specified below; `install`, `start`, `current`, `next`, `rm`, `runs`, independent
 run IDs, execution history and instruction placeholder substitution are implemented.
 Checks and hooks are not.
 
@@ -34,7 +34,7 @@ scripts, discoverable through a skill. Works in any harness with a shell.
 
 ## Version 0.1
 
-The first release walks independent flows: `start`, `current`, `next`, `rm`, `runs`.
+The first release installs and walks independent flows: `install`, `start`, `current`, `next`, `rm`, `runs`.
 No checks, no hooks, no tracker. This section is the contract; code follows it, not a chat.
 
 ### Flow
@@ -142,6 +142,62 @@ when it needs rework; a failed review goes back to `implement`.
 
 A refused flow says what is wrong and, when there is a step or a key, names it.
 
+### Installing flows
+
+`stepan install <source> [--flow <name>] [--ref <branch|tag|commit>]` copies flows
+from Git into `<write root>/.stepan/flows/`. Git on PATH is required for install
+only. Sources are GitHub `owner/repo`, full HTTPS/SSH Git URLs, SCP-style SSH
+URLs and `file://` Git URLs; other protocols, plain paths and embedded passwords
+are refused. Existing Git credential helpers may supply saved credentials, but
+terminal/askpass prompts are disabled. SSH uses OpenSSH `ssh` on PATH with
+BatchMode and strict host-key checking, retaining SSH config/agent/known hosts
+but not custom `GIT_SSH*` wrappers or `core.sshCommand`.
+Each Git subprocess has a 120-second timeout and
+a 16 MiB output buffer limit; a larger response is an explicit failure.
+
+- With no `--flow`, select every immediate flow directory in the source's
+  `.stepan/flows/`; ignore ordinary files directly in the collection directory.
+  With `--flow`, select one exact directory name. No collection or an unknown
+  selection is an error. All selected definitions must be valid before copying.
+- With no `--ref`, use the default branch. Otherwise resolve a branch, tag or
+  commit present in the cloned repository. Commit prefixes must be hexadecimal
+  and at least seven characters. Ambiguous branch/tag names require an explicit
+  `refs/heads/` or `refs/tags/` prefix. Git revision expressions are not accepted.
+- Read a single commit through a temporary bare clone, not checkout. Do not run
+  hooks, checkout filters, submodules, scripts or instructions. Copy ordinary
+  files inside selected flows only, never source runs or harness configuration.
+  Preserve the Git executable flag on platforms with executable permissions.
+  Refuse symlinks/gitlinks, path traversal, Windows-incompatible names and
+  case-insensitive/Unicode-normalization path collisions. Installed instruction
+  references must name files inside their own flow; this installation restriction
+  does not change how manually authored project flows are loaded.
+- An existing destination is an error, even if empty, a symlink, or different
+  only by case. Do not follow symlinks/junctions in destination parents. Check
+  the whole set before writing, reserve new flow directories exclusively, and
+  never overwrite existing files. On ordinary copy failures, attempt rollback
+  of only this invocation's new flow directories; report rollback failures.
+  Empty parents may remain. Crash-atomicity and protection against hostile
+  concurrent replacement of the project tree are not provided.
+- Temporary clone/staging lives under `<write root>/.stepan/.install-<random>/`
+  and is removed on success or ordinary failure. Report cleanup failures;
+  a cleanup failure after successful copying may leave installed flows despite
+  a non-zero exit. The temporary path in the error identifies what to inspect.
+- Print source, resolved commit and destination paths on success. Do not store
+  provenance, a lockfile or an update link. Definitions are editable local files
+  suitable for Git; execution never needs the source or network access.
+- Installation has the same write-root isolation as run state. From sources,
+  it writes into `.dev-data/`; flow reads still use cwd, so running an example
+  installed there requires changing cwd to `.dev-data/`.
+- Invalid/missing/repeated options, unsupported source syntax, invalid ref/name
+  syntax or extra positionals exit 2; Git source retrieval,
+  validation, path, conflict and I/O failures exit 1. Standalone `install --help`
+  and `install -h` perform no filesystem or Git access.
+
+There are no built-in flows, global installs, automatic updates or catalog search.
+The example lives in https://github.com/grinev/stepan-flows. Validation establishes
+format and file boundaries, not trust: third-party instructions must be reviewed
+before being given to an agent.
+
 ### Run
 
 - One session drives a run; several independent runs can coexist in one working directory.
@@ -207,14 +263,15 @@ A refused flow says what is wrong and, when there is a step or a key, names it.
 
 ### Commands
 
-| Command                                  | Does                                                             |
-| ---------------------------------------- | ---------------------------------------------------------------- |
-| `stepan start <flow> <task>`             | creates a run, prints its description, ID and first instruction  |
-| `stepan current <run-id>`                | prints the selected run's current instruction from project files |
-| `stepan next <run-id> --<field> <value>` | takes the selected run's current outcome and moves on            |
-| `stepan rm <run-id>`                     | deletes the selected run                                         |
-| `stepan runs`                            | lists active runs                                                |
-| `stepan runs --all`                      | lists active and retained finished runs                          |
+| Command                                                 | Does                                                             |
+| ------------------------------------------------------- | ---------------------------------------------------------------- |
+| `stepan install <source> [--flow <name>] [--ref <ref>]` | installs project flows from a Git commit                         |
+| `stepan start <flow> <task>`                            | creates a run, prints its description, ID and first instruction  |
+| `stepan current <run-id>`                               | prints the selected run's current instruction from project files |
+| `stepan next <run-id> --<field> <value>`                | takes the selected run's current outcome and moves on            |
+| `stepan rm <run-id>`                                    | deletes the selected run                                         |
+| `stepan runs`                                           | lists active runs                                                |
+| `stepan runs --all`                                     | lists active and retained finished runs                          |
 
 - `<flow>` names a directory under `.stepan/flows/` in the working directory: `stepan start feature`
   reads `.stepan/flows/feature/flow.yaml`. `<task>` is any non-empty string kept in the run for `{{task}}`;

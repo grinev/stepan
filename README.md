@@ -2,7 +2,7 @@
 
 **CLI for agent workflows.** The agent pulls the next step; Stepan holds the flow.
 
-> **Status: early development.** `start`, `current`, `next`, `rm`, `runs`, independent run IDs,
+> **Status: early development.** `install`, `start`, `current`, `next`, `rm`, `runs`, independent run IDs,
 > execution history and instruction placeholder substitution are implemented. Checks and hooks are not implemented yet.
 
 Coding agents follow a workflow written as prose: one long instruction loaded at the start of a
@@ -28,10 +28,14 @@ your task tracker: tracker commands will be declared in the flow, not built into
 
 ## Available now
 
-Put `flow.yaml` in `.stepan/flows/<name>/` and the Markdown instructions in its `steps/` directory.
+Requires Node.js 22+. Installing flows also requires Git on PATH.
+
+Install a flow from a Git repository, or put `flow.yaml` in `.stepan/flows/<name>/`
+and the Markdown instructions in its `steps/` directory yourself.
 The format is specified in [PRODUCT.md](./PRODUCT.md#flow). Then run:
 
 ```sh
+stepan install <source> [--flow <name>] [--ref <branch|tag|commit>]
 stepan start <name> <task>
 stepan current <run-id>
 stepan next <run-id> --<field> <value>
@@ -113,14 +117,59 @@ Installed packages save `.stepan/runs/<run-id>.json` in the working directory. F
 `node dist/cli.js current <run-id>` reads that same source-mode state.
 `node dist/cli.js next <run-id> --<field> <value>` advances it.
 
-## Try the example
+## Install flows
 
-This repository includes a three-step flow in [`.stepan/flows/example/`](./.stepan/flows/example/):
-`implement -> review -> finish`, with a failed review looping back to `implement`.
-It passes `{{task}}`, the latest implementation summary and review findings between instructions.
-Copy that directory to `.stepan/flows/example/` in your project, then use an installed Stepan:
+Run in the project where you want the definitions:
 
 ```sh
+stepan install grinev/stepan-flows --flow example
+stepan install https://github.com/grinev/stepan-flows.git
+stepan install grinev/stepan-flows --flow example --ref <tag-or-commit>
+```
+
+`owner/repo` is GitHub shorthand. Full HTTPS, SSH (including `git@host:path`),
+and `file://` Git URLs are also supported. Plain local paths and other Git
+protocols are not. Omit `--flow` to install every immediate flow directory under
+the source's `.stepan/flows/`; root collection files are ignored. An explicit
+`--flow` selects exactly one directory. Without `--ref`, installation uses the
+repository's default branch. A ref can name a branch, tag or commit (at least
+seven hexadecimal characters for a commit prefix). If a branch and tag share a
+name, use `refs/heads/<name>` or `refs/tags/<name>`. Revision expressions are not
+supported. Git credential helpers can use existing credentials, but terminal and
+askpass prompts are disabled. SSH uses OpenSSH `ssh` on PATH in BatchMode with
+strict host-key checking; preconfigure keys/agent and known hosts. Custom
+`GIT_SSH*` wrappers and `core.sshCommand` are not used by installation.
+
+Every selected flow is validated before any flow is installed. Existing target
+directories, including case-insensitive name collisions, are never overwritten.
+Instructions must reference files inside their own flow. Symlinks, submodules,
+unsafe paths and names that cannot be used on Windows are refused. Only files
+inside selected flows are copied, not run state or agent configuration. The Git
+executable flag is retained on platforms that support executable permissions.
+The output includes the resolved source, commit and destination paths.
+
+Installed flows are ordinary editable project files, not linked dependencies.
+Commit them to your project; running them needs neither Git nor network access.
+There is no global installation, automatic update, provenance file or lockfile.
+On an ordinary write failure, Stepan attempts to remove only the flows it just
+created; empty parent directories may remain. Installation is not crash-atomic.
+If temporary-directory cleanup fails after copying, the command reports an error
+but installed flows may already exist; inspect the printed path before retrying.
+
+**Review third-party instructions before asking an agent to follow them.**
+Installation does not execute source hooks, checkout filters or flow instructions;
+format validation does not prove that an instruction is safe or that an agent
+actually performed a review or check.
+
+## Try the example
+
+The [separate flow collection](https://github.com/grinev/stepan-flows) includes a three-step example:
+`implement -> review -> finish`, with a failed review looping back to `implement`.
+It passes `{{task}}`, the latest implementation summary and review findings between instructions.
+Install it in your project with an installed Stepan:
+
+```sh
+stepan install grinev/stepan-flows --flow example
 stepan start example TASK-12
 # Use the run ID returned by start in every command below.
 stepan next <run-id> --summary "First implementation."
@@ -135,8 +184,20 @@ stepan runs --all                            # finished runs are retained
 The reported values above illustrate the graph, not proof that any work was done. In a real
 run, follow each instruction and report its actual outcome. Use `stepan current <run-id>` to
 resume at any point; use `stepan runs` if you have forgotten an active run's ID.
-From a source checkout, the same example works with `node dist/cli.js` in place of `stepan`
-after `npm run build`; its state stays in `.dev-data/`.
+From a source checkout, installation writes to the checkout's `.dev-data/`, not
+the current project's definitions. Flow reads still use the working directory,
+so change into `.dev-data/` to try the installed example:
+
+```sh
+npm run build
+node dist/cli.js install grinev/stepan-flows --flow example
+cd .dev-data
+node ../dist/cli.js start example TASK-12
+```
+
+Continue with `node ../dist/cli.js current <run-id>` and `next <run-id> ...`.
+The test-only copy in `test/fixtures/example/` keeps automated tests offline;
+it is not shipped in the npm package.
 
 What Stepan is meant to become: [PRODUCT.md](./PRODUCT.md).
 
