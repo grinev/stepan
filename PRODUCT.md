@@ -276,7 +276,9 @@ before being given to an agent.
 - `<flow>` names a directory under `.stepan/flows/` in the working directory: `stepan start feature`
   reads `.stepan/flows/feature/flow.yaml`. `<task>` is any non-empty string kept in the run for `{{task}}`;
   Stepan does not resolve it against a tracker.
-- **`start` output** — the optional nonempty description, then the first step output. No graph
+- **`start` output** — `Flow description:` on its own line before the optional nonempty
+  description, then the first step output. The label is absent when the description is absent
+  or empty; its text is not trimmed or substituted. No graph
   is printed, even without a description: the agent needs the current instruction, not the
   transition graph. `current` and `next` do not repeat the description.
 - **Run selection** — `current`, `next` and `rm` require a valid run ID; omission or an invalid
@@ -284,11 +286,17 @@ before being given to an agent.
 - **`current`** — how a session resumes after a restart or a compaction: the same step from
   the selected run's history, with the current project instruction and placeholders filled.
   Use `runs` to recover a forgotten ID.
-- **Step output** — `Run: <run-id>` and `Step: <step-id>`, the instruction with placeholders
-  filled, then the exit line: `stepan next` with the actual run ID already filled in and every
+- **Step output** — `Run: <run-id>` and `Step: <step-id>`, a blank line, `Instructions:`
+  on its own line, the instruction with placeholders filled, then a blank line and
+  `After completing this step, run:` before the exit line: `stepan next` with the
+  actual run ID already filled in and every
   outcome field — a required string as `--plan "<text>"`, an enum as
   `--verdict <pass|fail>`, an optional field in brackets. The line is a template, not a command to
   paste as is: the agent replaces outcome placeholders, not the run ID.
+  The labels are always English, independently of the instruction's language. They also
+  appear for an empty instruction and a final step without outcome fields: completing that
+  step still requires `next`. Existing instruction and description newlines are preserved;
+  the labels affect output only, not project files or stored run history.
 - **`next`** — the current step is taken from the selected run's state, not a CLI argument. An
   unknown flag or a flag given twice is a usage error. A missing required field or a value outside
   an enum is refused with a message naming it; the run stays. A valid outcome is checked against

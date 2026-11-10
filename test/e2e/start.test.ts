@@ -63,9 +63,9 @@ describe('stepan start', () => {
         put(cli, '.stepan/flows/feature/flow.yaml', yaml + FLOW);
         const started = runCli(['start', 'feature', 'TASK-1'], cli);
         const id = runId(started);
-        const prefix = description ? `${description}\n` : '';
+        const prefix = description ? `Flow description:\n${description}\n` : '';
         expect(started.stdout).toBe(
-          `${prefix}Run: ${id}\nStep: plan\n\nPlan TASK-1.\n\nstepan next ${id} --plan "<text>" [--note "<text>"]\n`,
+          `${prefix}Run: ${id}\nStep: plan\n\nInstructions:\nPlan TASK-1.\n\nAfter completing this step, run:\nstepan next ${id} --plan "<text>" [--note "<text>"]\n`,
         );
         const checkRecord = (): void => {
           const record: unknown = JSON.parse(readFileSync(runPath(cli, id), 'utf8'));
@@ -81,6 +81,7 @@ describe('stepan start', () => {
         expect(next).toMatchObject({ code: 0, stderr: '' });
         expect(next.stdout).toContain('Review plan.md.');
         expect(next.stdout).not.toContain('Context for {{task}}');
+        expect(next.stdout).not.toContain('Flow description:');
         checkRecord();
       }
     },
@@ -120,7 +121,7 @@ describe('stepan start', () => {
     const id = runId(result);
     expect(result.stderr).toBe('');
     expect(result.stdout).toBe(
-      `Run: ${id}\nStep: plan\n\nPlan STP-8: задача.\n\nstepan next ${id} --plan "<text>" [--note "<text>"]\n`,
+      `Run: ${id}\nStep: plan\n\nInstructions:\nPlan STP-8: задача.\n\nAfter completing this step, run:\nstepan next ${id} --plan "<text>" [--note "<text>"]\n`,
     );
     const path = runPath(cli, id);
     const record = JSON.parse(readFileSync(path, 'utf8')) as RunState;
@@ -198,7 +199,9 @@ describe('stepan start', () => {
     put(cli, '.stepan/flows/-flow/done.md', 'Done.');
     const result = runCli(['start', '--', '-flow', '-task'], cli);
     const id = runId(result);
-    expect(result.stdout).toBe(`Run: ${id}\nStep: done\n\nDone.\n\nstepan next ${id}\n`);
+    expect(result.stdout).toBe(
+      `Run: ${id}\nStep: done\n\nInstructions:\nDone.\n\nAfter completing this step, run:\nstepan next ${id}\n`,
+    );
     expect(JSON.parse(readFileSync(runPath(cli, id), 'utf8'))).toMatchObject({
       task: '-task',
       flowName: '-flow',

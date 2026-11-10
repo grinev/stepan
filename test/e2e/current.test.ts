@@ -37,7 +37,7 @@ function expectStep(cli: RunningCli, stdout?: string): void {
   expect(result).toMatchObject({ code: 0, stderr: '' });
   expect(result.stdout).toBe(
     stdout ??
-      `Run: ${cli.id}\nStep: plan\n\nPlan STP-8: задача.\n\nstepan next ${cli.id} --plan "<text>" [--note "<text>"] --verdict <pass|fail> [--reason <small|large>]\n`,
+      `Run: ${cli.id}\nStep: plan\n\nInstructions:\nPlan STP-8: задача.\n\nAfter completing this step, run:\nstepan next ${cli.id} --plan "<text>" [--note "<text>"] --verdict <pass|fail> [--reason <small|large>]\n`,
   );
   expect(readFileSync(cli.runPath, 'utf8')).toBe(before);
   expect(readdirSync(cli.runsDirectory)).toEqual([`${cli.id}.json`]);
@@ -53,7 +53,7 @@ describe('stepan current', () => {
       writeFileSync(join(directory, 'plan.md'), 'Changed instruction.');
       expectStep(
         cli,
-        `Run: ${cli.id}\nStep: plan\n\nChanged instruction.\n\nstepan next ${cli.id} --plan "<text>" [--note "<text>"] --verdict <pass|fail> [--reason <small|large>]\n`,
+        `Run: ${cli.id}\nStep: plan\n\nInstructions:\nChanged instruction.\n\nAfter completing this step, run:\nstepan next ${cli.id} --plan "<text>" [--note "<text>"] --verdict <pass|fail> [--reason <small|large>]\n`,
       );
       rmSync(join(cli.cwd, '.stepan/flows'), { recursive: true });
       const before = readFileSync(cli.runPath, 'utf8');
@@ -69,7 +69,10 @@ describe('stepan current', () => {
   it('prints the actual current step, including a final step without outcomes', () => {
     const cli = fixture();
     expect(runCli(['next', cli.id, '--plan=plan.md', '--verdict=pass'], cli).code).toBe(0);
-    expectStep(cli, `Run: ${cli.id}\nStep: finish\n\nFinish plan.md.\n\nstepan next ${cli.id}\n`);
+    expectStep(
+      cli,
+      `Run: ${cli.id}\nStep: finish\n\nInstructions:\nFinish plan.md.\n\nAfter completing this step, run:\nstepan next ${cli.id}\n`,
+    );
   });
 
   it('reports completion with the run ID and exit code 0', () => {

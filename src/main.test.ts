@@ -150,7 +150,7 @@ describe('next', () => {
     expect(capture(['next', ID, '--verdict=pass', '--note', 'текст с пробелами'])).toEqual({
       code: 0,
       stderr: '',
-      stdout: `Run: ${ID}\nStep: finish\n\nFinish текст с пробелами.\n\nstepan next ${ID} --summary "<text>"\n`,
+      stdout: `Run: ${ID}\nStep: finish\n\nInstructions:\nFinish текст с пробелами.\n\nAfter completing this step, run:\nstepan next ${ID} --summary "<text>"\n`,
     });
     expect(store.loadRun).not.toHaveBeenCalled();
     expect(store.updateRun).toHaveBeenCalledWith('isolated-root', ID, expect.any(Function));
@@ -256,7 +256,7 @@ describe('state commands', () => {
     expect(capture(['current', ID])).toEqual({
       code: 0,
       stderr: '',
-      stdout: `Run: ${ID}\nStep: review\n\nReview TASK-1.\n\nstepan next ${ID} --verdict <pass|fail> [--note "<text>"] [--help "<text>"] [--h "<text>"] [--version "<text>"] [--constructor "<text>"] [--x "<text>"]\n`,
+      stdout: `Run: ${ID}\nStep: review\n\nInstructions:\nReview TASK-1.\n\nAfter completing this step, run:\nstepan next ${ID} --verdict <pass|fail> [--note "<text>"] [--help "<text>"] [--h "<text>"] [--version "<text>"] [--constructor "<text>"] [--x "<text>"]\n`,
     });
     expect(store.loadRun).toHaveBeenCalledWith('isolated-root', ID);
   });

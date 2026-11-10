@@ -41,6 +41,8 @@ describe('repository example', () => {
       const started = runCli(['start', 'example', 'TASK-12'], cli);
       const id = runId(started);
       expect(started.stderr).toBe('');
+      expect(started.stdout).toMatch(/^Flow description:\n/);
+      expect(started.stdout).toContain('Instructions:\n# Implement');
       expect(started.stdout).toContain(
         'Implement a task, review it, and address findings until the work is ready to finish.',
       );
@@ -51,6 +53,8 @@ describe('repository example', () => {
       const review = runCli(['next', id, '--summary', 'First implementation.'], cli);
       expect(review).toMatchObject({ code: 0, stderr: '' });
       expect(review.stdout).toContain('Step: review');
+      expect(review.stdout).toContain('Instructions:\n# Review');
+      expect(review.stdout).not.toContain('Flow description:');
       expect(review.stdout).toContain('First implementation.');
       expect(review.stdout).not.toContain('{{steps.implement.outcome.summary}}');
 
@@ -80,7 +84,7 @@ describe('repository example', () => {
       expect(final.stdout).toContain('Step: finish');
       expect(final.stdout).toContain('Implementation with a regression test.');
       expect(final.stdout).toContain('Review verdict: pass');
-      expect(final.stdout).toContain(`stepan next ${id}\n`);
+      expect(final.stdout).toContain(`After completing this step, run:\nstepan next ${id}\n`);
       expect(runCli(['next', id], cli)).toMatchObject({
         code: 0,
         stdout: `Run ${id} is finished.\n`,

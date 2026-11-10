@@ -73,11 +73,11 @@ function current(cli: Fixture, stdout: string): void {
 }
 
 function planOutput(path = '-'): string {
-  return `Run: RUN-ID\nStep: plan\n\nPlan ${TASK}. Previous: ${path}.\n\nstepan next RUN-ID --path "<text>" [--note "<text>"]\n`;
+  return `Run: RUN-ID\nStep: plan\n\nInstructions:\nPlan ${TASK}. Previous: ${path}.\n\nAfter completing this step, run:\nstepan next RUN-ID --path "<text>" [--note "<text>"]\n`;
 }
 
 function reviewOutput(path: string, note = '-'): string {
-  return `Run: RUN-ID\nStep: review\n\nReview ${TASK}: ${path}.\nNote: ${note}.\n\nstepan next RUN-ID --verdict <pass|fail>\n`;
+  return `Run: RUN-ID\nStep: review\n\nInstructions:\nReview ${TASK}: ${path}.\nNote: ${note}.\n\nAfter completing this step, run:\nstepan next RUN-ID --verdict <pass|fail>\n`;
 }
 
 describe('instruction placeholders', () => {
@@ -101,7 +101,7 @@ steps:
         layout,
       );
       const output = (reviewer: string, report: string): string =>
-        `Run: RUN-ID\nStep: review\n\nReviewer: ${reviewer}\nReport: [${report}]\n\nstepan next RUN-ID --reviewer "<text>" [--report "<text>"]\n`;
+        `Run: RUN-ID\nStep: review\n\nInstructions:\nReviewer: ${reviewer}\nReport: [${report}]\n\nAfter completing this step, run:\nstepan next RUN-ID --reviewer "<text>" [--report "<text>"]\n`;
       success(cli, ['start', 'feature', TASK], output('-', '-'));
       current(cli, output('-', '-'));
       expect(readFileSync(join(cli.cwd, '.stepan/flows/feature/review.md'), 'utf8')).toBe(
@@ -152,7 +152,7 @@ steps:
       success(
         cli,
         ['next', cli.id, '--verdict=pass'],
-        `Run: RUN-ID\nStep: finish\n\nFinish ${TASK}: pass.\n\nstepan next RUN-ID\n`,
+        `Run: RUN-ID\nStep: finish\n\nInstructions:\nFinish ${TASK}: pass.\n\nAfter completing this step, run:\nstepan next RUN-ID\n`,
       );
       expect(readRun(cli).events[1]).toMatchObject({
         outcome: { path: 'docs/first plan.md', note: 'old note' },
@@ -185,15 +185,16 @@ steps:
     );
     const task = '{{steps.loop.outcome.value}} $& $1 $$ \\ "задача"';
     const value = '{{task}} $& $1 $$ \\ "план"\nsecond line';
-    const exit = 'stepan next RUN-ID --value "<text>" [--empty "<text>"]\n';
+    const exit =
+      'After completing this step, run:\nstepan next RUN-ID --value "<text>" [--empty "<text>"]\n';
     const extra = (value: string): string =>
       `Unknown: {{unknown}} / - / - / {{{steps.missing.outcome.value}}} / {{unknown {{steps.missing.outcome.value}} }}\nExample \`{{task\`\nCurrent: ${task}\nJSON: {"value":${value}}\n`;
     success(
       cli,
       ['start', 'feature', task],
-      `Run: RUN-ID\nStep: loop\n\nTask: ${task}\nValue: -\nEmpty: [-]\n${extra('-')}\n${exit}`,
+      `Run: RUN-ID\nStep: loop\n\nInstructions:\nTask: ${task}\nValue: -\nEmpty: [-]\n${extra('-')}\n${exit}`,
     );
-    const output = `Run: RUN-ID\nStep: loop\n\nTask: ${task}\nValue: ${value}\nEmpty: []\n${extra(value)}\n${exit}`;
+    const output = `Run: RUN-ID\nStep: loop\n\nInstructions:\nTask: ${task}\nValue: ${value}\nEmpty: []\n${extra(value)}\n${exit}`;
     success(cli, ['next', cli.id, '--value', value, '--empty='], output);
     current(cli, output);
     expect(runView(readRun(cli)).outcomes.loop).toEqual({ value, empty: '' });
@@ -219,13 +220,13 @@ steps:
 `,
       { choose: instruction, finish: 'Finish {{task}}.' },
     );
-    const exit = 'stepan next RUN-ID --verdict <{{task}}|done>\n';
+    const exit = 'After completing this step, run:\nstepan next RUN-ID --verdict <{{task}}|done>\n';
     success(
       cli,
       ['start', 'feature', 'TASK-5'],
-      `Run: RUN-ID\nStep: choose\n\nTask TASK-5; last -.\n\n${exit}`,
+      `Run: RUN-ID\nStep: choose\n\nInstructions:\nTask TASK-5; last -.\n\n${exit}`,
     );
-    const output = `Run: RUN-ID\nStep: choose\n\nTask TASK-5; last {{task}}.\n\n${exit}`;
+    const output = `Run: RUN-ID\nStep: choose\n\nInstructions:\nTask TASK-5; last {{task}}.\n\n${exit}`;
     success(cli, ['next', cli.id, '--verdict', '{{task}}'], output);
     current(cli, output);
     expect(readFileSync(join(cli.cwd, '.stepan/flows/feature/choose.md'), 'utf8')).toBe(

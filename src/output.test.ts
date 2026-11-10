@@ -4,8 +4,8 @@ import type { Step } from './flow.js';
 import type { RunState, RunView } from './run.js';
 
 const ID = 'a7c93f2b';
-const HEADER = `Run: ${ID}\nStep: review\n\n`;
-const EXIT = `stepan next ${ID}`;
+const HEADER = `Run: ${ID}\nStep: review\n\nInstructions:\n`;
+const EXIT = `After completing this step, run:\nstepan next ${ID}`;
 const context: Pick<RunView, 'id' | 'task' | 'outcomes'> = {
   id: ID,
   task: 'TASK-1',
@@ -20,9 +20,10 @@ describe('output', () => {
   it.each([
     [undefined, 'Step output'],
     ['', 'Step output'],
-    ['Context {{task}}', 'Context {{task}}\n\nStep output'],
-    ['First\nSecond\n', 'First\nSecond\n\nStep output'],
-    ['Context\n\n', 'Context\n\n\nStep output'],
+    ['Context {{task}}', 'Flow description:\nContext {{task}}\n\nStep output'],
+    ['First\nSecond\n', 'Flow description:\nFirst\nSecond\n\nStep output'],
+    ['Context\n\n', 'Flow description:\nContext\n\n\nStep output'],
+    [' ', 'Flow description:\n \n\nStep output'],
   ])('formats the literal optional description (%#)', (description, expected) => {
     expect(startOutput(description, 'Step output')).toBe(expected);
   });
@@ -51,7 +52,7 @@ describe('output', () => {
   it('adds a newline if needed and handles a final step without fields', () => {
     expect(
       stepOutput('finish', { instruction: '{{task}}', outcome: {}, transitions: [] }, context),
-    ).toBe(`Run: ${ID}\nStep: finish\n\nTASK-1\n\n${EXIT}\n`);
+    ).toBe(`Run: ${ID}\nStep: finish\n\nInstructions:\nTASK-1\n\n${EXIT}\n`);
   });
 
   it('substitutes repeated task and outcome references, including an enum value', () => {
@@ -169,15 +170,18 @@ describe('output', () => {
     ).toBe(`${HEADER}${task}\n${path}\n\n${EXIT}\n`);
   });
 
-  it.each(['value', 'value\n', ''])('formats the newline after substitution (%#)', (path) => {
-    expect(
-      render('{{steps.plan.outcome.path}}', {
-        id: ID,
-        task: 'TASK-1',
-        outcomes: { plan: { path } },
-      }),
-    ).toBe(`${HEADER}${path}${path.endsWith('\n') ? '' : '\n'}\n${EXIT}\n`);
-  });
+  it.each(['value', 'value\n', 'первая строка\nвторая строка\n\n', ''])(
+    'formats the newline after substitution (%#)',
+    (path) => {
+      expect(
+        render('{{steps.plan.outcome.path}}', {
+          id: ID,
+          task: 'TASK-1',
+          outcomes: { plan: { path } },
+        }),
+      ).toBe(`${HEADER}${path}${path.endsWith('\n') ? '' : '\n'}\n${EXIT}\n`);
+    },
+  );
 
   it('keeps the instruction and context unchanged and substitutes only the instruction', () => {
     const step: Step = {

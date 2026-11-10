@@ -5,7 +5,7 @@ type InstructionContext = Pick<RunView, 'id' | 'task' | 'outcomes'>;
 
 export function startOutput(description: string | undefined, step: string): string {
   if (description === undefined || description.length === 0) return step;
-  return `${description}${description.endsWith('\n') ? '' : '\n'}\n${step}`;
+  return `Flow description:\n${description}${description.endsWith('\n') ? '' : '\n'}\n${step}`;
 }
 
 function instructionText(text: string, context: InstructionContext): string {
@@ -65,7 +65,7 @@ export function stepOutput(id: string, step: Step, context: InstructionContext):
   });
   const command = ['stepan next', context.id, ...flags].join(' ');
   const instruction = instructionText(step.instruction, context);
-  return `Run: ${context.id}\nStep: ${id}\n\n${instruction}${instruction.endsWith('\n') ? '' : '\n'}\n${command}\n`;
+  return `Run: ${context.id}\nStep: ${id}\n\nInstructions:\n${instruction}${instruction.endsWith('\n') ? '' : '\n'}\nAfter completing this step, run:\n${command}\n`;
 }
 
 export function runsOutput(runs: RunState[], all: boolean): string {

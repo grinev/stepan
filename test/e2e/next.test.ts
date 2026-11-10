@@ -29,11 +29,12 @@ steps:
     instruction: finish.md
 `;
 const PLAN =
-  'Run: RUN-ID\nStep: plan\n\nPlan STP-8: задача.\n\nstepan next RUN-ID --plan "<text>" [--note "<text>"] [--reason <small|large>]\n';
+  'Run: RUN-ID\nStep: plan\n\nInstructions:\nPlan STP-8: задача.\n\nAfter completing this step, run:\nstepan next RUN-ID --plan "<text>" [--note "<text>"] [--reason <small|large>]\n';
 function reviewOutput(plan: string): string {
-  return `Run: RUN-ID\nStep: review\n\nReview ${plan}.\n\nstepan next RUN-ID --verdict <pass|fail|hold> [--findings "<text>"]\n`;
+  return `Run: RUN-ID\nStep: review\n\nInstructions:\nReview ${plan}.\n\nAfter completing this step, run:\nstepan next RUN-ID --verdict <pass|fail|hold> [--findings "<text>"]\n`;
 }
-const FINISH = 'Run: RUN-ID\nStep: finish\n\nFinish.\n\nstepan next RUN-ID\n';
+const FINISH =
+  'Run: RUN-ID\nStep: finish\n\nInstructions:\nFinish.\n\nAfter completing this step, run:\nstepan next RUN-ID\n';
 const FINISHED = 'Run RUN-ID is finished.\n';
 
 function fixture(layout: 'installed' | 'sources' = 'installed', flow = FLOW): RunningCli {
@@ -209,7 +210,7 @@ describe('stepan next', () => {
       success(
         cli,
         ['next', cli.id, '--updated=new value'],
-        'Run: RUN-ID\nStep: finish\n\nChanged new value.\n\nstepan next RUN-ID\n',
+        'Run: RUN-ID\nStep: finish\n\nInstructions:\nChanged new value.\n\nAfter completing this step, run:\nstepan next RUN-ID\n',
       );
       expect(readRun(cli).events[0]).toEqual(before.events[0]);
       expect(readRun(cli).events[1]).toMatchObject({
@@ -234,7 +235,7 @@ describe('stepan next', () => {
       success(
         cli,
         ['current', cli.id],
-        'Run: RUN-ID\nStep: review\n\nReview historical.\n\nstepan next RUN-ID\n',
+        'Run: RUN-ID\nStep: review\n\nInstructions:\nReview historical.\n\nAfter completing this step, run:\nstepan next RUN-ID\n',
       );
       writeFileSync(
         join(directory, 'flow.yaml'),
@@ -243,7 +244,7 @@ describe('stepan next', () => {
       success(
         cli,
         ['current', cli.id],
-        'Run: RUN-ID\nStep: review\n\nReview historical.\n\nstepan next RUN-ID\n',
+        'Run: RUN-ID\nStep: review\n\nInstructions:\nReview historical.\n\nAfter completing this step, run:\nstepan next RUN-ID\n',
       );
       success(cli, ['next', cli.id], FINISHED);
       expect(readRun(cli).events.slice(0, -1)).toEqual(before.events);
@@ -294,7 +295,7 @@ steps:
     success(
       cli,
       ['next', cli.id, '--note='],
-      'Run: RUN-ID\nStep: plan\n\nPlan STP-8: задача.\n\nstepan next RUN-ID [--note "<text>"]\n',
+      'Run: RUN-ID\nStep: plan\n\nInstructions:\nPlan STP-8: задача.\n\nAfter completing this step, run:\nstepan next RUN-ID [--note "<text>"]\n',
     );
     expect(runView(readRun(cli)).outcomes.plan).toEqual({ note: '' });
     success(cli, ['next', cli.id], FINISH);

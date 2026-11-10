@@ -48,7 +48,27 @@ run state; do not ignore all of `.stepan/`. Flow definitions are read only from 
 directory's `.stepan/flows/`, with no global lookup or fallback to a top-level `flows/` directory.
 
 `start` validates the entire flow, records the initial step and timestamp, and prints
-the optional flow description and first instruction with a `stepan next` exit template. Add a
+the optional flow description under `Flow description:` and the first instruction under
+`Instructions:`, with a `stepan next` exit template. For example:
+
+```text
+Flow description:
+Implement a change and review it.
+
+Run: a7c93f2b
+Step: implement
+
+Instructions:
+Implement TASK-12.
+
+After completing this step, run:
+stepan next a7c93f2b --summary "<text>"
+```
+
+The labels are always English, even when the author's text is in another language.
+`After completing this step, run:` marks when to report the actual outcome, not an
+instruction to skip the current work. Labels are printed only; author text and
+stored run history are unchanged. Add a
 string `description` to `flow.yaml` to explain the flow's purpose, approach and result boundary;
 it may be multiline or empty and is printed literally, without placeholder substitution. No graph
 is printed, even when the description is absent. `current` and `next` do not repeat it. Replace the template values
