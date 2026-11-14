@@ -1,5 +1,10 @@
 # Stepan
 
+[![npm version](https://img.shields.io/npm/v/@grinev/stepan)](https://www.npmjs.com/package/@grinev/stepan)
+[![CI](https://github.com/grinev/stepan/actions/workflows/ci.yml/badge.svg)](https://github.com/grinev/stepan/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/grinev/stepan/blob/main/LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org)
+
 **Step-by-step workflows for coding agents.**
 
 Stepan is a CLI for agent workflows defined as graphs of steps. Your agent gets one
