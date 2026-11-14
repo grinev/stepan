@@ -31,6 +31,16 @@ Flow parsing validates mapping keys in the YAML AST before converting it to Java
 Otherwise distinct YAML keys such as `true` and `"true"` can collapse into one property and hide
 an invalid schema. Keys must resolve to strings and remain unique, including alias keys.
 
+## Continuous integration
+
+[CI](../.github/workflows/ci.yml) runs on pushes and pull requests to `main`,
+and can be started manually. A single Ubuntu job with Node.js 22 runs `npm ci`,
+lint, typecheck, build and tests as separate steps. It builds from the checkout,
+without an existing `dist`, agent configuration or publishing secrets.
+
+The workflow has read-only repository permissions and cancels superseded runs
+for the same ref. It does not publish packages, create tags or create releases.
+
 ## Tests
 
 - **Unit** — `src/**/*.test.ts`, next to the file under test. Logic with a real branch gets one.
