@@ -46,6 +46,23 @@ an invalid schema. Keys must resolve to strings and remain unique, including ali
   collection's example in `test/fixtures/example/` is an offline fixture, not a
   built-in flow; keep it aligned when the collection's example changes.
 
+## Flow-authoring skill
+
+The Git-distributed Agent Skill consists of `skills/stepan-flow-creator/SKILL.md`
+and its self-contained `references/flow-format.md`.
+It is not part of the npm `files` allowlist and adds no runtime dependency or example flow.
+
+Keep PRODUCT.md's implemented format and the bundled reference in sync when
+the format changes. The deliberate duplication lets an installed skill work offline without
+the source checkout; a link back to PRODUCT.md would not provide that contract locally.
+
+Review the skill and reference against the implemented loader and product contract.
+To check installation, use a disposable project and private home/config/cache roots
+for the external `skills` installer, with telemetry disabled and an explicit target agent,
+no global install. Check that the complete reference is installed, not just `SKILL.md`.
+Until the files are pushed, local installation does not establish that the documented
+GitHub command can fetch them.
+
 ## Where Stepan writes, by who runs it
 
 Stepan will write run state, configuration and hooks it installs into agent harnesses (Claude

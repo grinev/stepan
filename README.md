@@ -181,6 +181,32 @@ Installation does not execute source hooks, checkout filters or flow instruction
 format validation does not prove that an instruction is safe or that an agent
 actually performed a review or check.
 
+## Create your own flow
+
+Install the optional flow-authoring skill for your agent:
+
+```sh
+npx skills add grinev/stepan --skill stepan-flow-creator
+```
+
+The installer lets you choose the target agent and installs into the current project by
+default; add `-g` for installation across projects. This uses the external
+[skills CLI](https://github.com/vercel-labs/skills), not `stepan install`.
+
+Then ask your agent, for example:
+
+> Use stepan-flow-creator to create a flow that drafts a document, asks me to approve it,
+> returns to drafting when I request changes, and hands back the accepted result.
+> Discuss the steps and transitions with me before writing the files.
+
+The skill bundles a complete local format reference, so authoring after
+installation needs no network access or Stepan checkout. An installed Stepan CLI is
+optional for authoring and can check the result in a disposable project. The skill does
+not execute your process or replace project rules. Stepan itself does not require a skill.
+
+See the [skill and its bundled reference](https://github.com/grinev/stepan/tree/main/skills/stepan-flow-creator).
+Skill installation fetches files from GitHub separately from the Stepan npm package.
+
 ## Try the example
 
 The [separate flow collection](https://github.com/grinev/stepan-flows) includes a three-step example:

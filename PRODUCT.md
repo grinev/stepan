@@ -35,6 +35,11 @@ scripts, discoverable through a skill. Works in any harness with a shell.
 ## Version 0.1
 
 The first release installs and walks independent flows: `install`, `start`, `current`, `next`, `rm`, `runs`.
+An optional `stepan-flow-creator` Agent Skill is distributed from the Git repository through
+`npx skills add grinev/stepan --skill stepan-flow-creator`. It authors and edits flow files,
+not runs. Its complete local format reference is installed with the skill, so authoring
+needs neither network access nor a Stepan source checkout after installation. It is separate
+from the npm CLI package and is not required to use Stepan.
 No checks, no hooks, no tracker. This section is the contract; code follows it, not a chat.
 
 ### Flow
@@ -329,7 +334,7 @@ before being given to an agent.
 
 Checks of any level, optional steps, `on_enter`/`on_leave` and the tracker, `stepan show`, harness
 hooks, a history-viewing command, round counters, `--mode`, a step library,
-an agent skill. Surviving `git clean` is open, not promised.
+a skill for executing flows. Surviving `git clean` is open, not promised.
 
 ## After 0.1
 
