@@ -19,6 +19,17 @@ specification or project source from the internet. No Stepan checkout is needed.
 An installed CLI is optional for authoring. Design the process the user requested;
 the excerpts below illustrate the format, not a required workflow.
 
+## Design for one session
+
+A run is driven by one agent session, not a fresh agent at every step. Earlier work,
+decisions, reports, and agent session IDs remain in that conversation. Each instruction
+tells the agent what to do next; it should not reconstruct the whole execution context.
+
+Keep steps short and action-oriented. A self-contained instruction makes its action clear;
+it does not repeat everything the agent already knows. Do not copy loaded project rules
+into steps or repeatedly ask the agent to reread a general instruction file. Give any
+process-wide guidance once, where it first applies.
+
 ## Understand and propose
 
 1. Read relevant project rules. For an existing flow, read its `flow.yaml` and all referenced
@@ -27,6 +38,9 @@ the excerpts below illustrate the format, not a required workflow.
 2. Understand the intended result, inputs, steps, handoffs, decision makers, rework paths,
    and completion boundary. Ask only questions that materially change the graph or instructions.
    Do not add a tracker, subagent, review gate, commit, or other requirement the user did not request.
+   Translate actions, not source-document headings: when rework differs from initial work,
+   give it a separate step such as `revise-plan` or `fix`. Name steps after their actions,
+   such as `plan-review` or `code-review`, rather than an abstract subject.
 3. Propose the flow name and location, steps, outcome fields, transitions, and final step.
    Use a short list or text diagram; explain what comes back on a failed decision.
    Identify which approvals require an actual human answer.
@@ -45,16 +59,24 @@ invent YAML keys or claim prose is enforced by Stepan. Resolve that choice befor
 - Check destination files before writing. For a new flow, do not overwrite an existing
   directory: propose another name or ask whether the user wants to edit it.
   For an edit, preserve unrelated content and files; apply only approved changes.
-- Describe the purpose and result boundary in `description`. Keep graph control in YAML
-  and the work of each step in its instruction.
-- Give each instruction its goal, relevant inputs, expected result, and any real approval
-  requirement. Reference the task and earlier results explicitly with supported placeholders.
-  Outcomes are strings, not files automatically opened by Stepan.
+- Describe the purpose, broad approach, and result boundary in `description`, not the
+  step-by-step route. Keep graph control in YAML and the work of each step in its instruction.
+- State the next action, expected artifact or decision, and any real approval requirement.
+  Include only the inputs needed there; do not impose a repeated input/output template.
+- Use supported placeholders as targeted reminders: a plan path before review or revision,
+  for example. Do not prepend the same task, spec, and plan to every step. Resolve actual
+  artifact paths instead of constructing them from `{{task}}`, which may be arbitrary prose.
+- Keep outcomes for routing decisions and values later steps actually reference. File paths
+  are useful; full reviewer feedback, research reports, and progress summaries usually
+  duplicate the conversation. Outcomes are strings, not files automatically opened by Stepan.
 - Use outcome enums for decisions and explicit rework transitions. Make terminal steps clear.
   A missing prior outcome prints `-`; instructions should explain how to proceed on a first visit.
   Revisited steps see the latest completed outcome, which may be from an earlier visit.
 - Where the user's process requires approval, instruct the executing agent to wait for the
   actual answer and report it faithfully. An enum does not prove that approval occurred.
+- If a launch command is requested, keep it to starting the flow and following the returned
+  instructions. The CLI already prints how to report each step's outcome and continue;
+  do not repeat that boilerplate in the command or step instructions.
 - Keep project rules in force. Do not edit harness settings, hooks, tracker configuration,
   project rules, or unrelated flows as a side effect.
 - Explain that flow definitions belong in Git and only `.stepan/runs/` should be ignored.
@@ -62,8 +84,8 @@ invent YAML keys or claim prose is enforced by Stepan. Resolve that choice befor
 
 ## Format excerpts
 
-These fragments come from the published `plan-and-implement` flow in `grinev/stepan-flows`.
-They are excerpts, not complete flow definitions.
+These illustrative fragments show a process that calls for plan review. They are not
+a complete flow or a requirement to add review to other processes.
 
 A step declares its instruction, the plan path it reports, and its next step:
 
@@ -75,45 +97,63 @@ plan:
       type: string
       required: true
   transitions:
-    - to: approve-plan
+    - to: plan-review
 ```
 
-The approval step declares its own decision and routes changes back to planning:
+Review reports only its verdict; revision uses the findings already in the session:
 
 ```yaml
-approve-plan:
-  instruction: steps/approve-plan.md
+plan-review:
+  instruction: steps/plan-review.md
   outcome:
-    decision:
+    verdict:
       type: enum
-      values: [approved, changes]
+      values: [pass, fail]
       required: true
-    feedback:
-      type: string
   transitions:
-    - when: { decision: changes }
-      to: plan
-    - when: { decision: approved }
+    - when: { verdict: fail }
+      to: revise-plan
+    - when: { verdict: pass }
       to: implement
+revise-plan:
+  instruction: steps/revise-plan.md
+  transitions:
+    - to: plan-review
 ```
 
-An instruction passes the approved plan's path explicitly:
+The review instruction gives the reviewer the file it needs:
 
 ```markdown
-Approved plan file:
+# Review the plan
 
-{{steps.plan.outcome.plan}}
+Plan: {{steps.plan.outcome.plan}}
+
+Ask the process's reviewer to read the plan. On a recheck, resume the same reviewer.
+Wait for its verdict: `pass` if accepted, `fail` if changes are needed.
+```
+
+Revision is a different action, not a request to plan from scratch:
+
+```markdown
+# Revise the plan
+
+Plan: {{steps.plan.outcome.plan}}
+
+Update the plan for accepted findings from the latest review in this session.
+Explain rejected findings to the reviewer.
 ```
 
 The full flow continues through implementation to a final step. In any flow you create,
 every referenced step and instruction file must exist. Do not execute these excerpts
-or add plan approval to a process that does not call for it.
+or add review or approval to a process that does not call for it.
 
 ## Check the authored files
 
 Always check the files against the local reference: keys and types, readable instructions,
 existing targets, outcome conditions, ordered defaults, terminal path, and placeholder inputs.
 Check that every possible decision has an intentional route and rework has a way to finish.
+Check instruction economy too: each step adds a distinct action, path reminders appear
+where useful, and outcomes do not replay reports already in the session.
 Never invent `stepan validate`, `--dry-run`, or another command that does not exist.
 
 `start` creates a run; it is not a read-only validator. Do not start a run or install/update

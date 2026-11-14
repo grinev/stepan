@@ -127,9 +127,8 @@ Only these exact forms are substituted in step instructions:
 {{steps.<step-id>.outcome.<field-name>}}
 ```
 
-For a plan path, use `{{steps.plan.outcome.plan}}`; for user feedback, use
-`{{steps.approve-plan.outcome.feedback}}`. The excerpts in `../SKILL.md` show these fields
-in the published `plan-and-implement` flow.
+For a plan path, use `{{steps.plan.outcome.plan}}`. The excerpts in `../SKILL.md`
+illustrate a path reminder before review and revision without repeating the review report.
 
 - No spaces inside braces. Unknown or malformed forms remain literal.
 - `{{task}}` is the non-empty task string supplied to `start`; Stepan does not resolve a tracker ID.
@@ -144,9 +143,10 @@ in the published `plan-and-implement` flow.
 - Substitution happens once. Task/outcome values containing placeholders stay data, not nested
   templates. Original instruction files are never rewritten.
 
-Instructions should name needed inputs and the expected artifact or decision. If a placeholder
-is a path, tell the executing agent to read the file. If a human decision is required, instruct
-the agent to ask and wait; do not let it supply approval on the human's behalf.
+Use placeholders for inputs needed by the next action, such as a file to read, edit, or pass
+to a reviewer. A run continues in one agent session, so do not repeat the full context or
+reports in every instruction. If a human decision is required, instruct the agent to ask
+and wait; do not let it supply approval on the human's behalf.
 
 ## Boundaries and verification
 
