@@ -10,5 +10,5 @@ export default tseslint.config(
       parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
     },
   },
-  { files: ['**/*.js'], ...tseslint.configs.disableTypeChecked },
+  { files: ['**/*.{js,mjs}'], ...tseslint.configs.disableTypeChecked },
 );

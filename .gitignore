@@ -42,3 +42,4 @@ desktop.ini
 CLAUDE.local.md
 .opencode/*
 !.opencode/agents/
+!.opencode/commands/

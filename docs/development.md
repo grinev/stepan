@@ -22,6 +22,11 @@ npm install
 
 Run the CLI from sources after a build: `node dist/cli.js <args>`.
 
+Local version preparation, release notes, package checks and the manual npm/GitHub
+release procedure are in [Releasing](./releasing.md). Release tooling is not part
+of the npm package. The first release's notes are hand-written; subsequent
+drafts use Git history and are curated before publication.
+
 Flow parsing validates mapping keys in the YAML AST before converting it to JavaScript objects.
 Otherwise distinct YAML keys such as `true` and `"true"` can collapse into one property and hide
 an invalid schema. Keys must resolve to strings and remain unique, including alias keys.
@@ -38,6 +43,9 @@ an invalid schema. Keys must resolve to strings and remain unique, including ali
   behaviour gets an e2e test.
 - `test/build.global-setup.ts` builds `dist/` once before the suite, so e2e never runs a stale
   build.
+- Release tooling uses unit tests in `scripts/*.test.mjs` and real script subprocesses
+  against temporary Git repositories with private configuration. It does not add
+  release commands to the Stepan CLI or access the network in tests.
 - Install tests create local Git repositories inside their sandbox, with a private
   global Git config and `GIT_CONFIG_NOSYSTEM=1`. GitHub/HTTPS source tests use
   `url.*.insteadOf` to map to local repositories; no network or maintainer config

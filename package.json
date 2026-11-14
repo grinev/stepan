@@ -1,6 +1,6 @@
 {
   "name": "@grinev/stepan",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "CLI for agent workflows: the agent pulls the next step, the CLI holds the flow.",
   "license": "MIT",
   "author": "Ruslan Grinev",
@@ -9,7 +9,9 @@
     "stepan": "dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=22"
@@ -18,8 +20,25 @@
     "type": "git",
     "url": "https://github.com/grinev/stepan.git"
   },
+  "homepage": "https://github.com/grinev/stepan#readme",
+  "bugs": {
+    "url": "https://github.com/grinev/stepan/issues"
+  },
+  "keywords": [
+    "cli",
+    "ai",
+    "agents",
+    "workflows",
+    "developer-tools"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
+    "release:prepare": "node scripts/release-prepare.mjs",
+    "release:notes:preview": "node scripts/release-notes-preview.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
